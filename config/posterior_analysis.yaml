@@ -1,0 +1,101 @@
+model: &DEFAULT
+
+  # Directory setup
+  PROJECT_DIR: '/global/cscratch1/sd/gstein/machine_learning/sn_project/suPAErnova/' # all following paths relative to here
+  FIG_DIR: 'figures/'
+  DATA_DIR: 'data/'
+  OUTPUT_DIR: 'outputs/'
+  MODEL_DIR: 'outputs/tensorflow_models/'
+  PARAM_DIR: 'outputs/params/'
+  LOG_DIR: 'logs/'
+  verbose: !!bool True
+  
+  train_data_file: 'data/train_data_kfold0.npy'
+  test_data_file: 'data/test_data_kfold0.npy'
+  kfold: 0
+  colorlaw_file: 'data/F99_colorlaw.txt'
+
+  #out_file_tail: 'test'
+  #posterior_file_tail: 'test'
+  out_file_tail: '3stage_train_decorrelate_all_seed2' 
+  posterior_file_tail: '3stage_train_decorrelate_all_seed2' #_longchain'
+
+  # Outputs
+  model_summary: !!bool True
+  savefig: !!bool False
+  savemodel: !!bool True  
+  print_params: !!bool True
+  
+  # Data dimensionality
+  data_dim: 288
+  cond_dim: 1 
+  n_timestep: 32
+
+  # AE model architecture
+  encode_dims: [256, 128, 32]
+  decode_dims: [32, 128, 256]
+  latent_dims: [3]
+
+  physical_latent: !!bool True
+  colorlaw_preset: !!bool True
+  use_amplitude: !!bool True
+  use_extrinsic_params: !!bool True # use A_v in normalizing flow
+  overfit: !!bool True
+  
+  # cuts here only effect measured model uncertainty. posterior analysis still performed on all SN
+  set_data_min_val: !!float 0.0
+  min_train_redshift: !!float 0.02
+  max_train_redshift: !!float 1.0
+  max_light_cut: [-10, 40]  # don't train on SN without at least 1 spectra within this range [units = days]
+  max_light_cut_spectra: [-10, 40]  # Only use spectra within this range
+  inverse_spectra_cut: !!bool False   # Invert max_light_cut_spectra (Only use spectra outside of range above)	
+  twins_cut: !!bool False # Cut data that was not used in the Twins analysis (https://arxiv.org/abs/2105.02676)
+
+  # Flow architecture
+  nlayers: 12
+  nunit: 8
+  batchnorm: !!bool False
+
+posterior:
+  <<: *DEFAULT
+
+  nchains: 25
+
+  # Find MAP using lbfgs minimizer
+  find_MAP: !!bool True
+  stop_ratio: 0.0001
+  max_iterations: 2500 #2500
+  max_line_search_iterations: 50
+  tolerance: 0.01
+
+  # Run HMC
+  run_HMC: !!bool True
+  ihmc: !!bool True # True if HMC, false if MCMC
+  num_burnin_steps: 10000 #25000
+  num_samples: 10000 #25000
+  num_leapfrog_steps: 5
+  step_size: 0.05
+  dtime_norm: 1.0
+  target_accept_rate: 0.651 # modifies step size to try to reach this target
+
+  seed: 23581  
+  batch_size: 171
+  
+  train_noise: !!bool False        # resample data within measurement errors
+  vary_mask: !!bool False           # mask <mask_vary_frac> of spectra for each SN
+
+  lr: !!float 0.001
+  noise_scale: !!float 1.0 
+  mask_vary_frac: !!float 0.2
+
+  rMAPini: !!bool False            # Use encoder or random MAP position to start gradient descent
+
+  train_MAP: !!bool True
+  train_amplitude: !!bool True     # Free amplitude parameter. Don't train if use_amplitude==True in network 
+  train_dtime: !!bool True         # Delta time shift for t0
+  train_bias: !!bool False         # Additive bias
+  
+  savedata: !!bool True
+
+
+

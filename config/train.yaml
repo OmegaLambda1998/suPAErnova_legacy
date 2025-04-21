@@ -1,0 +1,118 @@
+pae: &DEFAULT
+
+  # Directory setup
+  PROJECT_DIR: '/global/cscratch1/sd/gstein/machine_learning/sn_project/suPAErnova/' # all following paths relative to here
+  FIG_DIR: 'figures/'
+  DATA_DIR: 'data/'
+  OUTPUT_DIR: 'outputs/'
+  MODEL_DIR: 'outputs/tensorflow_models/'
+  PARAM_DIR: 'outputs/params/'
+  LOG_DIR: 'logs/'
+  
+  train_data_file: 'data/train_data_kfold0.npy'
+  test_data_file: 'data/test_data_kfold0.npy'
+  kfold: 0
+  colorlaw_file: 'data/F99_colorlaw.txt'
+
+  out_file_tail: '3stage_train_decorrelate_all_seed0'
+  #out_file_tail: 'test'
+
+  # Outputs
+  verbose: !!bool True
+  model_summary: !!bool False
+  savefig: !!bool False
+  savemodel: !!bool True  
+  print_params: !!bool True
+  
+  # Data dimensionality
+  data_dim: 288
+  cond_dim: 1 
+  n_timestep: 32
+
+  # Model architecture
+  encode_dims: [256, 128, 32]
+  decode_dims: [32, 128, 256]
+  latent_dims: [3]
+
+  #layer_type: 'convolution'
+  layer_type: 'dense'
+
+  kernel_size: 11
+  stride: 6            # ensure data_dim/stride is an integer 
+
+  physical_latent: !!bool True
+  train_latent_individual: !!bool False
+  colorlaw_preset: !!bool True
+  use_amplitude: !!bool True
+  decorrelate_dust: !!bool True
+  decorrelate_all: !!bool True
+
+  # Loss functions
+  loss_fn: 'WHUBER' #'HUBER' # (MAE or wMAE), (MSE or wMSE), (RMSE or wRMSE), NGLL, (HUBER or WHUBER), magnitude
+  clip_delta: !!float 25.
+  
+  iloss_reconstruction: !!bool True
+  iloss_covariance: !!bool True
+  iloss_amplitude_parameter: !!bool False
+  iloss_amplitude_offset: !!bool False
+
+  lambda_covariance: !!float 50000. # 00.
+  lambda_colorlaw: !!float 0.0
+  lambda_amplitude_parameter: !!float 1000.0
+  lambda_amplitude_offset: !!float 500.
+  
+  # AE Training
+  epochs: 1000 
+  epochs_latent: 1000
+  epochs_final: 5000 
+  val_every: 100
+  seed: 23581
+  batch_size: 57
+  val_frac: !!float 0.33
+  overfit: !!bool True # Save/use model at last epoch, rather than "best" checkpoint
+  use_val: !!bool False # Split off validation set from test
+
+  set_data_min_val: !!float 0.0
+  min_train_redshift: !!float 0.02
+  max_train_redshift: !!float 1.0
+  max_light_cut: [-10, 40]  # Don't train on SN without at least 1 spectra within this range [units = days]
+  max_light_cut_spectra: [-10, 40]  # Don't train on SN without at least 1 spectra within this range [units = days]
+  inverse_spectra_cut: !!bool False   # Invert max_light_cut_spectra (Only use spectra outside of range above)
+  twins_cut: !!bool False # Cut data that was not used in the Twins analysis (https://arxiv.org/abs/2105.02676)
+  
+  dropout: !!bool False
+  batchnorm: !!bool False
+  kernel_regularizer: !!bool False # True
+  train_noise: !!bool True         # resample data within measurement errors
+  train_time_uncertainty: !!bool True        # resample data within measurement errors	
+  vary_mask: !!bool True          # mask <mask_vary_frac> of spectra for each SN
+  multistage_training: !!bool True # Trains in 3 stages. The first does not allow the amplitude term to vary, the second does, and the third allows for a delta time parameter
+  
+  optimizer: 'ADAMW' # ADAM, ADAMW
+  scheduler: 'EXPONENTIAL' # None, exponential
+
+  activation: 'RELU' # TANH, RELU, ELU, GELI, SWISH
+  lr: !!float 0.005
+  lr_deltat: !!float 0.001
+  lr_decay_rate: !!float 0.95
+  lr_decay_steps: 300
+  weight_decay_rate: !!float 0.0001
+  dropout_rate: !!float 0.2
+  kernel_regularizer_val: !!float 100.0
+  noise_scale: !!float 1.0        # in units of observation uncertainty 
+  time_scale: !!float 0.3         # in days 
+  mask_vary_frac: !!float 0.1
+
+  # Flow parameters 
+  nlayers: 12 
+  nunit: 8
+
+  # Training
+  epochs_flow: 500
+  checkpoint_flow_every: 10
+  val_frac_flow: !!float 0.22 #33
+  patience: 30
+  use_extrinsic_params: !!bool True # Use A_v in flow
+  batchnorm_flow: !!bool False
+
+  lr_flow: !!float 0.001
