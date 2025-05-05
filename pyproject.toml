@@ -2,10 +2,7 @@
     authors = [
         {name = "Patrick Armstrong", email = "patrick.james.1998@gmail.com"},
     ]
-    dependencies = [
-    "ruamel-yaml>=0.18.10",
-    "tensorflow>=2.19.0",
-]
+    dependencies = ["ruamel-yaml>=0.18.10", "tensorflow>=2.19.0"]
     description = "Add your description here"
     name = "supaernova_legacy"
     readme = "README.md"
@@ -86,15 +83,6 @@
             "F722",    # Ignore forward annotation syntax errors
         ]
 
-        per-file-ignores = {"src/suPAErnova/configs/**.py" = [
-            "TC001", # Move first party typing-only imports into a TYPE_CHECKING block. Breaks pydantic
-            "TC002", # Move third party typing-only imports into a TYPE_CHECKING block. Breaks pydantic
-            "TC003", # Move standard library typing-only imports into a TYPE_CHECKING block. Breaks pydantic
-        ], "tests/**/*.py" = [
-            "S101", # Don't warn when assert is used in tests
-        ]}
-
-
         # Consider all rules fixable
         fixable = ["ALL"]
 
@@ -110,17 +98,6 @@
         [tool.ruff.lint.flake8-copyright]
             author = "Patrick Armstrong"
 
-        # Conventions for `from _ import _ as _`
-        [tool.ruff.lint.flake8-import-conventions.aliases]
-            matplotlib               = "mpl"
-            "matplotlib.cm"          = "cm"
-            "matplotlib.pyplot"      = "plt"
-            numpy                    = "np"
-            pandas                   = "pd"
-            pytorch                  = "tch"
-            tensorflow               = "tf"
-            "tensorflow.keras"       = "ks"
-            "tensorflow_probability" = "tfp"
 
         # Type Checking
         [tool.ruff.lint.flake8-type-checking]

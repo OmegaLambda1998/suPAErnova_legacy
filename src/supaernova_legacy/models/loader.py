@@ -19,9 +19,15 @@ def load_ae_models(params):
         params["out_file_tail"],
     )
 
-    model_params_out_path = os.path.join(
-        params["PROJECT_DIR"], f"{params['PARAM_DIR']}/{ae_model_params_fname}"
+    model_save_path = os.path.join(
+        params["PROJECT_DIR"], params["MODEL_DIR"], str(params["prev_train_stage"])
     )
+
+    param_save_path = os.path.join(
+        params["PROJECT_DIR"], params["PARAM_DIR"], str(params["prev_train_stage"])
+    )
+
+    model_params_out_path = os.path.join(param_save_path, ae_model_params_fname)
     if not params["overfit"]:
         model_params_out_path += "_best"
 

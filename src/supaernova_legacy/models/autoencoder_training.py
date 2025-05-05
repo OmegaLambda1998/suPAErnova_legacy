@@ -307,12 +307,26 @@ def save_model(model, params, data, nbatches, is_best=False) -> None:
         if is_best:
             fname += "_best"
 
+        model_save_path = os.path.join(
+            params["PROJECT_DIR"], params["MODEL_DIR"], str(params["train_stage"])
+        )
+        if not os.path.exists(model_save_path):
+            os.mkdir(model_save_path)
+
+        param_save_path = os.path.join(
+            params["PROJECT_DIR"], params["PARAM_DIR"], str(params["train_stage"])
+        )
+        if not os.path.exists(param_save_path):
+            os.mkdir(param_save_path)
+
         # Save model
         encoder_file = os.path.join(
-            params["PROJECT_DIR"], params["MODEL_DIR"], f"encoder_{fname}.keras"
+            model_save_path,
+            f"encoder_{fname}.keras",
         )
         decoder_file = os.path.join(
-            params["PROJECT_DIR"], params["MODEL_DIR"], f"decoder_{fname}.keras"
+            model_save_path,
+            f"decoder_{fname}.keras",
         )
 
         save_dict = {}
@@ -321,7 +335,10 @@ def save_model(model, params, data, nbatches, is_best=False) -> None:
         save_dict["decoder"] = decoder_file
         save_dict["parameters"] = params
         np.save(
-            os.path.join(params["PROJECT_DIR"], params["PARAM_DIR"], f"{fname}"),
+            os.path.join(
+                param_save_path,
+                f"{fname}",
+            ),
             save_dict,
         )
 

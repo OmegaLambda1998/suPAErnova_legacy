@@ -151,7 +151,7 @@ def compute_loss_ae(model, x, cond, sigma, mask):
 
         loss += loss_amp
 
-    loss_recon = loss * 1.0  # reconstruction loss
+    losses = [loss]
 
     # Punish overall amplitude offset of spectra from SN
     if model.params["iloss_amplitude_offset"]:
@@ -159,7 +159,9 @@ def compute_loss_ae(model, x, cond, sigma, mask):
             tf.abs(tf.reduce_sum((x - x_pred) * mask, axis=(-2, -1)))
         )
         # tf.print(loss, loss_offset, loss_offset*model.params['lambda_amplitude_offset'])
-        loss += loss_offset * model.params["lambda_amplitude_offset"]
+        losses.append(loss_offset * model.params["lambda_amplitude_offset"])
+    else:
+        losses.append(0)
 
     if model.params["use_amplitude"] and model.params["iloss_amplitude_parameter"]:
         #        mask_z = tf.reduce_max(mask, axis=(-2, -1))
@@ -172,7 +174,9 @@ def compute_loss_ae(model, x, cond, sigma, mask):
         z_median = tfp.stats.percentile(z[:, 0], 50.0, interpolation="midpoint")
         loss_amplitude = (1 - z_median) ** 2
 
-        loss += loss_amplitude * model.params["lambda_amplitude_parameter"]
+        losses.append(loss_amplitude * model.params["lambda_amplitude_parameter"])
+    else:
+        losses.append(0)
     #         if model.physical_latent and not model.colorlaw_preset:
     #             # if fitting for colorlaw instead of just using premade,
     #             # make colowlaw amplitude small, such that colorlaw itself gets
@@ -243,7 +247,7 @@ def compute_loss_ae(model, x, cond, sigma, mask):
 
         # tf.print('DEBUG COVARIANCE', loss, loss_cov, loss_cov*model.params['lambda_covariance'])
         # loss_cov = tf.reduce_sum(tf.square(cov_z))
-        loss += loss_cov * model.params["lambda_covariance"]
+        losses.append(loss_cov * model.params["lambda_covariance"])
 
     #    tf.print(loss_recon, loss_offset*model.params['lambda_amplitude_offset'], loss_amplitude*model.params['lambda_amplitude_parameter'], loss_cov * model.params['lambda_covariance'])
     #         if model.params['iloss_amplitude']:
@@ -256,13 +260,17 @@ def compute_loss_ae(model, x, cond, sigma, mask):
 
     # #             tf.print('z, A = ', z[:, 0:1].shape, A_pred.shape, z[:, 0:1], A_pred)
     #             loss += model.params['lambda_amplitude']*loss_amp
+    else:
+        losses.append(0)
 
     # KERNEL REGULARIZER LOSS
     if model.kernel_regularizer:
         # tf.print('Kernel regularizer loss = ', model.losses, tf.math.reduce_sum(model.losses))
-        loss += tf.math.reduce_sum(model.losses)
+        losses.append(tf.math.reduce_sum(model.losses))
+    else:
+        losses.append(0)
 
-    return loss, [loss, loss_recon, loss_cov * model.params["lambda_covariance"]]
+    return sum(losses), losses
 
 
 @tf.function

@@ -6,6 +6,8 @@ The Autoencoder architecture is specified in models/autoencoder.py,
 and the loss terms are specified in models/losses.py.
 """
 
+from typing import TYPE_CHECKING, Any
+
 import tensorflow as tf
 
 print("tensorflow version: ", tf.__version__)
@@ -23,17 +25,23 @@ from supaernova_legacy.models import (
 )
 from supaernova_legacy.utils.YParams import YParams
 
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
-def train_ae(input) -> None:
+
+def train_ae(
+    inputs: "Sequence[str] | None" = None,
+) -> dict[str, tuple[autoencoder.AutoEncoder, YParams]]:
+    results: dict[str, tuple[autoencoder.AutoEncoder, YParams]] = {}
+
     # Set model Architecture and training params and train
     parser = argparse.ArgumentParser()
     parser.add_argument("--yaml_config", default="../config/train.yaml", type=str)
     parser.add_argument("--config", default="pae", type=str)
 
-    args = parser.parse_args(input)
+    args = parser.parse_args(inputs)
 
     params = YParams(os.path.abspath(args.yaml_config), args.config, print_params=True)
-    epochs_initial = params["epochs"]
 
     train_data = data_loader.load_data(
         os.path.join(
@@ -92,24 +100,33 @@ def train_ae(input) -> None:
             AEmodel.decoder.summary()
 
         print(f"Training model with {latent_dim:d} latent dimensions")
-        print("Running training stage ", params["train_stage"])
         # Train model, splitting into seperate training stages for seperate model parameters, if desired.
-        _training_loss, _val_loss, _test_loss = autoencoder_training.train_model(
-            train_data,
-            val_data,
-            test_data,
-            AEmodel,
+
+        model_save_path = os.path.join(
+            params["PROJECT_DIR"], params["MODEL_DIR"], str(params["train_stage"])
         )
+        param_save_path = os.path.join(
+            params["PROJECT_DIR"], params["PARAM_DIR"], str(params["train_stage"])
+        )
+
+        if os.path.exists(model_save_path) and os.path.exists(param_save_path):
+            print("Skipping training stage ", params["train_stage"])
+        else:
+            print("Running training stage ", params["train_stage"])
+            _training_loss, _val_loss, _test_loss = autoencoder_training.train_model(
+                train_data,
+                val_data,
+                test_data,
+                AEmodel,
+            )
+
+        params["prev_train_stage"] = params["train_stage"]
 
         params["train_stage"] += 1
         if not params["train_latent_individual"]:
             params["train_stage"] += params["latent_dim"] - 1
 
         while params["train_stage"] < params["num_training_stages"]:
-            print("Running training stage ", params["train_stage"])
-
-            epochs_initial = params["epochs"]
-
             AEmodel_second = autoencoder.AutoEncoder(params, training=True)
             if params["train_stage"] < params["num_training_stages"] - 2:
                 AEmodel_second.params["epochs"] = params["epochs_latent"]
@@ -149,14 +166,40 @@ def train_ae(input) -> None:
             AEmodel_second.encoder.set_weights(encoder.get_weights())
             AEmodel_second.decoder.set_weights(decoder.get_weights())
 
-            _training_loss, _val_loss, _test_loss = autoencoder_training.train_model(
-                train_data,
-                val_data,
-                test_data,
-                AEmodel_second,
+            model_save_path = os.path.join(
+                params["PROJECT_DIR"], params["MODEL_DIR"], str(params["train_stage"])
+            )
+            param_save_path = os.path.join(
+                params["PROJECT_DIR"], params["PARAM_DIR"], str(params["train_stage"])
             )
 
+            if os.path.exists(model_save_path) and os.path.exists(param_save_path):
+                print("Skipping training stage ", params["train_stage"])
+            else:
+                print("Running training stage ", params["train_stage"])
+                _training_loss, _val_loss, _test_loss = (
+                    autoencoder_training.train_model(
+                        train_data,
+                        val_data,
+                        test_data,
+                        AEmodel_second,
+                    )
+                )
+
+            params["prev_train_stage"] = params["train_stage"]
+
+            results[params["train_stage"]] = stage_results(params)
+
             params["train_stage"] += 1
+    return results
+
+
+def stage_results(params: YParams) -> tuple[autoencoder.AutoEncoder, YParams]:
+    ae_model = autoencoder.AutoEncoder(params, training=False)
+    encoder, decoder, ae_params = model_loader.load_ae_models(params)
+    ae_model.encoder.set_weights(encoder.get_weights())
+    ae_model.decoder.set_weights(decoder.get_weights())
+    return (ae_model, ae_params)
 
 
 if __name__ == "__main__":
