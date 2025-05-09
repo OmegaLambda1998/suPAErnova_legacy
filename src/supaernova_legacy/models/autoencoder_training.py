@@ -24,7 +24,7 @@ def train_step(
     model, optimizer, compute_apply_gradients_ae, epoch, nbatches, train_data
 ):
     """Run one training step."""
-    training_loss, training_loss_terms = 0.0, [0.0, 0.0, 0.0]
+    training_loss, training_loss_terms = 0.0, [0.0, 0.0, 0.0, 0.0, 0.0]
 
     # shuffle indices each epoch for batches
     # batch feeding can be improved, but the various types of specialized masks/dropout

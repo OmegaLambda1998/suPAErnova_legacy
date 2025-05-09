@@ -6,51 +6,45 @@ The Autoencoder architecture is specified in models/autoencoder.py,
 and the loss terms are specified in models/losses.py.
 """
 
-import tensorflow as tf
-
-print("tensorflow version: ", tf.__version__)
-print("devices: ", tf.config.list_physical_devices("GPU"))
-import tensorflow_addons as tfa
-
-tfk = tf.keras
-tfkl = tf.keras.layers
-print("TFK Version", tfk.__version__)
-
-# %pip install tensorflow-probability==0.9.0
-import tensorflow_probability as tfp
-
-tfb = tfp.bijectors
-tfd = tfp.distributions
-print("TFP Version", tfp.__version__)
-
 import os
-import time
+from typing import TYPE_CHECKING
 import argparse
 
 import numpy as np
-from suPAErnova.utils import data_loader
-from suPAErnova.models import (
-    flows,
+import tensorflow as tf
+from tensorflow import keras as tfk
+import tensorflow_probability as tfp
+
+from supaernova_legacy.utils import data_loader
+from supaernova_legacy.models import (
     loader as model_loader,
-    losses,
     flow_training,
 )
-from suPAErnova.utils.YParams import YParams
-import tensorboard.plugins.hparams as HParams
+from supaernova_legacy.utils.YParams import YParams
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+print("tensorflow version: ", tf.__version__)
+print("devices: ", tf.config.list_physical_devices("GPU"))
+print("TFK Version", tfk.__version__)
+print("TFP Version", tfp.__version__)
 
 
-def parse_arguments():
+def parse_arguments(inputs: "Sequence[str] | None") -> argparse.Namespace:
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--yaml_config", default="../config/train.yaml", type=str)
     parser.add_argument("--config", default="pae", type=str)
     parser.add_argument("--print_params", default=True, action="store_true")
 
-    return parser.parse_args()
+    return parser.parse_args(inputs)
 
 
-def main() -> None:
-    args = parse_arguments()
+def train_flow(
+    inputs: "Sequence[str] | None" = None,
+) -> None:
+    args = parse_arguments(inputs)
 
     params = YParams(os.path.abspath(args.yaml_config), args.config, print_params=True)
 
@@ -117,4 +111,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    train_flow()

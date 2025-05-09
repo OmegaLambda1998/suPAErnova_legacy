@@ -68,6 +68,7 @@ math_subtract = FunctionLayer("math.subtract")
 relu = FunctionLayer("nn.relu")
 
 
+@keras.saving.register_keras_serializable()
 class AutoEncoder(tf.keras.Model):
     """Autoencoder with option for physical parameterization of the latent space,
     conditioned on the phase of observation.

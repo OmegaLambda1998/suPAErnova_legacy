@@ -121,8 +121,9 @@ def train_ae(
             )
 
         params["prev_train_stage"] = params["train_stage"]
-
+        results[str(params["train_stage"] + 1)] = stage_results(params)
         params["train_stage"] += 1
+
         if not params["train_latent_individual"]:
             params["train_stage"] += params["latent_dim"] - 1
 
@@ -187,10 +188,9 @@ def train_ae(
                 )
 
             params["prev_train_stage"] = params["train_stage"]
-
-            results[params["train_stage"]] = stage_results(params)
-
+            results[str(params["train_stage"] + 1)] = stage_results(params)
             params["train_stage"] += 1
+
     return results
 
 
