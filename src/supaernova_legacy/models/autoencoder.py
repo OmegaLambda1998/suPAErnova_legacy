@@ -330,15 +330,6 @@ class AutoEncoder(tf.keras.Model):
                 encode_dtime -= self.bn_moving_means[0]
                 encode_amplitude -= self.bn_moving_means[1]
                 encode_color -= self.bn_moving_means[2]
-                # tfkl.subtract([
-                #     encode_dtime,
-                #     self.bn_moving_means[0]
-                # ])
-                # encode_amplitude = tfkl.subtract([
-                #     encode_amplitude,
-                #     self.bn_moving_means[1]
-                # ])
-                # encode_color = tfkl.subtract([encode_color, self.bn_moving_means[2]])
 
             encode_outputs = tfkl.concatenate([
                 encode_dtime,

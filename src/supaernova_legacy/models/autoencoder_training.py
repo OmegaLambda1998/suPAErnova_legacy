@@ -6,17 +6,16 @@ The Autoencoder architecture is specified in models/autoencoder.py,
 and the loss terms are specified in models/losses.py.
 """
 
-import tensorflow as tf
-
-print("tensorflow version: ", tf.__version__)
-print("devices: ", tf.config.list_physical_devices("GPU"))
-
 import os
 import time
 
 import numpy as np
+import tensorflow as tf
 
 from . import losses, autoencoder
+
+print("tensorflow version: ", tf.__version__)
+print("devices: ", tf.config.list_physical_devices("GPU"))
 
 
 # @tf.function
@@ -24,7 +23,7 @@ def train_step(
     model, optimizer, compute_apply_gradients_ae, epoch, nbatches, train_data
 ):
     """Run one training step."""
-    training_loss, training_loss_terms = 0.0, [0.0, 0.0, 0.0, 0.0, 0.0]
+    training_loss, training_loss_terms = 0.0, [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
     # shuffle indices each epoch for batches
     # batch feeding can be improved, but the various types of specialized masks/dropout
@@ -200,6 +199,7 @@ def train_model(train_data, val_data, test_data, model):
         #     weight_decay=lambda: None,
         # )
         # optimizer.weight_decay = lambda: wd_schedule(optimizer.iterations)
+
         optimizer = tf.keras.optimizers.AdamW(wd_schedule)
 
     elif model.params["optimizer"].upper() == "SGD":
@@ -266,7 +266,7 @@ def train_model(train_data, val_data, test_data, model):
             test_loss_hist[val_iteration, 3] = test_loss_terms[2].numpy()
 
             print(
-                f"\nepoch={epoch:d}, time={end_time - start_time:.3f}s\n (total_loss, loss_recon, loss_cov)\ntrain loss: {training_loss_terms[0]:.2E} {training_loss_terms[1]:.2E} {training_loss_terms[2]:.2E}\nval loss: {val_loss_terms[0]:.2E} {val_loss_terms[1]:.2E} {val_loss_terms[2]:.2E}\ntest loss: {test_loss_terms[0]:.2E} {test_loss_terms[1]:.2E} {test_loss_terms[2]:.2E}"
+                f"\nepoch={epoch:d}, time={end_time - start_time:.3f}s\n (total_loss, loss_recon, loss_offset, loss_amplitude, loss_cov, loss_model)\ntrain loss: {[float(i) for i in training_loss_terms]}\nval loss: {[float(i) for i in val_loss_terms]}\ntest loss: {[float(i) for i in test_loss_terms]}"
             )
 
             if model.params["scheduler"].upper() == "EXPONENTIAL":
