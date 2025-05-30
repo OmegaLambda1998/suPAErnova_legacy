@@ -1,21 +1,15 @@
 # !/usr/bin/env python
-"""This code constructs and trains the Autoencoder model,
-based on the parameters specified in the configuration file, config/train.yaml.
+"""This code constructs and trains the Autoencoder model, based on the parameters specified in the configuration file, config/train.yaml.
 
 The Autoencoder architecture is specified in models/autoencoder.py,
 and the loss terms are specified in models/losses.py.
 """
 
-from typing import TYPE_CHECKING, Any
+import os
+from typing import TYPE_CHECKING
+import argparse
 
 import tensorflow as tf
-
-print("tensorflow version: ", tf.__version__)
-print("devices: ", tf.config.list_physical_devices("GPU"))
-
-
-import os
-import argparse
 
 from supaernova_legacy.utils import data_loader
 from supaernova_legacy.models import (
@@ -28,18 +22,25 @@ from supaernova_legacy.utils.YParams import YParams
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+print("tensorflow version: ", tf.__version__)
+print("devices: ", tf.config.list_physical_devices("GPU"))
+
+
+def parse_arguments(inputs: "Sequence[str] | None") -> argparse.Namespace:
+    # Set model Architecture and training params and train
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--yaml_config", default="../config/train.yaml", type=str)
+    parser.add_argument("--config", default="pae", type=str)
+
+    return parser.parse_args(inputs)
+
 
 def train_ae(
     inputs: "Sequence[str] | None" = None,
 ) -> dict[str, tuple[autoencoder.AutoEncoder, YParams]]:
     results: dict[str, tuple[autoencoder.AutoEncoder, YParams]] = {}
 
-    # Set model Architecture and training params and train
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--yaml_config", default="../config/train.yaml", type=str)
-    parser.add_argument("--config", default="pae", type=str)
-
-    args = parser.parse_args(inputs)
+    args = parse_arguments(inputs)
 
     params = YParams(os.path.abspath(args.yaml_config), args.config, print_params=True)
 
@@ -74,6 +75,10 @@ def train_ae(
         train_data, val_data = data_loader.split_train_and_val(train_data, params)
     else:
         val_data = test_data
+
+    params["train_data"] = train_data
+    params["test_data"] = test_data
+    params["val_data"] = val_data
 
     for il, latent_dim in enumerate(params["latent_dims"]):
         params["latent_dim"] = latent_dim
@@ -199,6 +204,7 @@ def stage_results(params: YParams) -> tuple[autoencoder.AutoEncoder, YParams]:
     encoder, decoder, ae_params = model_loader.load_ae_models(params)
     ae_model.encoder.set_weights(encoder.get_weights())
     ae_model.decoder.set_weights(decoder.get_weights())
+    ae_model.bn_moving_means = ae_params["moving_means"]
     return (ae_model, ae_params)
 
 

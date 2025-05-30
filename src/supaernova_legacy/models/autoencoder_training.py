@@ -268,7 +268,6 @@ def train_model(train_data, val_data, test_data, model):
             print(
                 f"\nepoch={epoch:d}, time={end_time - start_time:.3f}s\n (total_loss, loss_recon, loss_offset, loss_amplitude, loss_cov, loss_model)\ntrain loss: {[float(i) for i in training_loss_terms]}\nval loss: {[float(i) for i in val_loss_terms]}\ntest loss: {[float(i) for i in test_loss_terms]}"
             )
-
             if model.params["scheduler"].upper() == "EXPONENTIAL":
                 print(f"Learning rate is currently: {optimizer.learning_rate:.6f}")
 
@@ -333,14 +332,6 @@ def save_model(model, params, data, nbatches, is_best=False) -> None:
         save_dict["MODEL_DIR"] = params["MODEL_DIR"]
         save_dict["encoder"] = encoder_file
         save_dict["decoder"] = decoder_file
-        save_dict["parameters"] = params
-        np.save(
-            os.path.join(
-                param_save_path,
-                f"{fname}",
-            ),
-            save_dict,
-        )
 
         # Create new model with training=False (dropout deactivated). Copy weights to new model, and save.
         # Required as we are not using model.fit() and model.predict() due to architecture/training uniqueness.
@@ -359,17 +350,27 @@ def save_model(model, params, data, nbatches, is_best=False) -> None:
                 training=False,
                 bn_moving_means=[mean_dtime, mean_amplitude, mean_color],
             )
+            params["moving_means"] = [mean_dtime, mean_amplitude, mean_color]
 
             model_save.encoder.set_weights(model.encoder.get_weights())
             mean_dtime, mean_amplitude, mean_color = calculate_mean_parameters_batches(
                 model_save, data, nbatches
             )
-
         else:
             model_save = autoencoder.AutoEncoder(params, training=False)
             model_save.encoder.set_weights(model.encoder.get_weights())
+            params["moving_means"] = [0, 0, 0]
 
         model_save.decoder.set_weights(model.decoder.get_weights())
 
         model_save.encoder.save(encoder_file)
         model_save.decoder.save(decoder_file)
+
+        save_dict["parameters"] = params
+        np.save(
+            os.path.join(
+                param_save_path,
+                f"{fname}",
+            ),
+            save_dict,
+        )

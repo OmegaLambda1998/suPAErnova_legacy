@@ -1,5 +1,6 @@
 import os
 import random as rn
+from typing import TYPE_CHECKING, Self
 from pathlib import Path
 
 import keras
@@ -8,8 +9,12 @@ import tensorflow as tf
 import tensorflow.keras as ks
 import tensorflow.keras.layers as tfkl
 
+if TYPE_CHECKING:
+    from typing import Any
+    from collections.abc import Callable
+
 # Function registry
-FUNCTION_REGISTRY = {
+AE_FUNCTION_REGISTRY: dict[str, "Callable[..., Any]"] = {
     "reduce_min": tf.reduce_min,
     "reduce_max": tf.reduce_max,
     "reduce_sum": tf.reduce_sum,
@@ -20,52 +25,53 @@ FUNCTION_REGISTRY = {
 
 
 @keras.saving.register_keras_serializable()
-class FunctionLayer(ks.layers.Layer):
-    def __init__(self, fn, **kwargs) -> None:
+class AEFunctionLayer(ks.layers.Layer):
+    def __init__(self, *, fn: "str | Callable[..., Any]", **kwargs: "Any") -> None:
         super().__init__(**kwargs)
         if isinstance(fn, str):
-            if fn not in FUNCTION_REGISTRY:
+            if fn not in AE_FUNCTION_REGISTRY:
                 msg = f"Function '{fn}' is not registered."
                 raise ValueError(msg)
-            self.fn = FUNCTION_REGISTRY[fn]
-            self.fn_name = fn
+            self.fn: "Callable[..., Any]" = AE_FUNCTION_REGISTRY[fn]
+            self.fn_name: str | None = fn
         else:
             self.fn = fn
             self.fn_name = self._infer_fn_name(fn)
-            if (
-                self.fn_name not in FUNCTION_REGISTRY
-                or FUNCTION_REGISTRY[self.fn_name] is not fn
-            ):
-                msg = "Function must be from the registry to be serializable."
-                raise ValueError(msg)
+
+        if self.fn_name is None or self.fn_name not in AE_FUNCTION_REGISTRY:
+            msg = f"Function {self.fn} not in {list(AE_FUNCTION_REGISTRY.keys())}. Function must be from the registry to be serializable."
+            raise ValueError(msg)
+        if AE_FUNCTION_REGISTRY[self.fn_name] is not self.fn:
+            msg = f"Function {self.fn_name} should be {AE_FUNCTION_REGISTRY[self.fn_name]} but is {self.fn}"
+            raise ValueError(msg)
 
     def call(self, x, *args, **kwargs):
         if isinstance(x, tf.sparse.SparseTensor):
             x = tf.sparse.to_dense(x)
         return self.fn(x, *args, **kwargs)
 
-    def get_config(self):
+    def get_config(self) -> dict[str, "Any"]:
         config = super().get_config()
         config.update({"fn": self.fn_name})
         return config
 
     @classmethod
-    def from_config(cls, config):
+    def from_config(cls, config: dict[str, "Any"]) -> Self:
         return cls(**config)
 
-    def _infer_fn_name(self, fn):
-        for name, registered_fn in FUNCTION_REGISTRY.items():
+    def _infer_fn_name(self, fn: "Callable[..., Any]") -> str | None:
+        for name, registered_fn in AE_FUNCTION_REGISTRY.items():
             if registered_fn is fn:
                 return name
         return None
 
 
-reduce_min = FunctionLayer("reduce_min")
-reduce_max = FunctionLayer("reduce_max")
-reduce_sum = FunctionLayer("reduce_sum")
-math_maximum = FunctionLayer("math.maximum")
-math_subtract = FunctionLayer("math.subtract")
-relu = FunctionLayer("nn.relu")
+reduce_min = AEFunctionLayer(fn="reduce_min")
+reduce_max = AEFunctionLayer(fn="reduce_max")
+reduce_sum = AEFunctionLayer(fn="reduce_sum")
+math_maximum = AEFunctionLayer(fn="math.maximum")
+math_subtract = AEFunctionLayer(fn="math.subtract")
+relu = AEFunctionLayer(fn="nn.relu")
 
 
 @keras.saving.register_keras_serializable()

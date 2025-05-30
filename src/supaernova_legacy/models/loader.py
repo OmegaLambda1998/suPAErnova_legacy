@@ -58,8 +58,8 @@ def load_ae_models(params):
 
 def load_flow(params):
     checkpoint_filepath = (
-        "{:s}flow_kfold{:d}_{:02d}Dlatent_layers{:s}_nlayers{:02d}_{:s}".format(
-            params["MODEL_DIR"],
+        "{:s}flow_kfold{:d}_{:02d}Dlatent_layers{:s}_nlayers{:02d}_{:s}/".format(
+            params["NFLOW_MODEL_DIR"],
             params["kfold"],
             params["latent_dim"],
             "-".join(str(e) for e in params["encode_dims"]),
@@ -73,8 +73,24 @@ def load_flow(params):
     if params["verbose"]:
         print("loading flow from ", checkpoint_filepath)
 
+    u_latent_dim = params["latent_dim"]
+    if params["use_extrinsic_params"]:
+        u_latent_dim += 1  # plus one to include color term
+
     NFmodel, flow = flows.normalizing_flow(params)
-    NFmodel.load_weights(checkpoint_filepath)
+
+    # Dummy train step
+    NFmodel.train_step((
+        tf.zeros((1, u_latent_dim), dtype=tf.float32),
+        tf.zeros((1, 0), dtype=tf.float32),
+    ))
+
+    tf.train.Checkpoint(
+        NFmodel,
+    ).restore(
+        tf.train.latest_checkpoint(checkpoint_filepath)
+    ).assert_existing_objects_matched()
+    # NFmodel.load_weights(checkpoint_filepath)
 
     return NFmodel, flow
 

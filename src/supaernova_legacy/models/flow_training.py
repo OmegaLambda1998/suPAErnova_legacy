@@ -6,35 +6,25 @@ The Autoencoder architecture is specified in models/autoencoder.py,
 and the loss terms are specified in models/losses.py.
 """
 
+import os
+
+import tf_keras as tfk
 import tensorflow as tf
-
-print("tensorflow version: ", tf.__version__)
-print("devices: ", tf.config.list_physical_devices("GPU"))
-import tensorflow_addons as tfa
-
-tfk = tf.keras
-tfkl = tf.keras.layers
-print("TFK Version", tfk.__version__)
 
 # %pip install tensorflow-probability==0.9.0
 import tensorflow_probability as tfp
 
-tfb = tfp.bijectors
-tfd = tfp.distributions
-print("TFP Version", tfp.__version__)
-
-import os
-import time
-import argparse
-
-import numpy as np
-import tensorboard.plugins.hparams as HParams
-
 from . import (
     flows,
-    loader as model_loader,
-    losses,
 )
+
+tfb = tfp.bijectors
+tfd = tfp.distributions
+tfkl = tfk.layers
+print("tensorflow version: ", tf.__version__)
+print("devices: ", tf.config.list_physical_devices("GPU"))
+print("TFK Version", tfk.__version__)
+print("TFP Version", tfp.__version__)
 
 
 def train_flow(train_data, test_data, params):
@@ -42,7 +32,7 @@ def train_flow(train_data, test_data, params):
     Can definitely be improved/should be later,
     as the flow does not always train well in high dimensions.
     """
-    optimizer = tf.keras.optimizers.Adam(params["lr_flow"])
+    optimizer = tfk.optimizers.Adam(params["lr_flow"])
 
     # Don't use time shift or amplitude in normalizing flow
     # Amplitude represents uncorrelated shift from peculiar velocity and/or gray instrumental effects
@@ -56,11 +46,11 @@ def train_flow(train_data, test_data, params):
     print("Size of training data = ", z_latent.shape)
     layers_str = "-".join(str(e) for e in params["encode_dims"])
     checkpoint_filepath = (
-        f"{params['MODEL_DIR']}flow_kfold{params['kfold']}_{params['latent_dim']:02d}Dlatent_"
-        + f"layers{layers_str}_nlayers{params['nlayers']:02d}_{params['out_file_tail']}"
+        f"{params['NFLOW_MODEL_DIR']}flow_kfold{params['kfold']}_{params['latent_dim']:02d}Dlatent_"
+        + f"layers{layers_str}_nlayers{params['nlayers']:02d}_{params['out_file_tail']}/"
     )
 
-    cp_callback = tf.keras.callbacks.ModelCheckpoint(
+    cp_callback = tfk.callbacks.ModelCheckpoint(
         filepath=os.path.join(
             params["PROJECT_DIR"],
             checkpoint_filepath,
@@ -70,7 +60,7 @@ def train_flow(train_data, test_data, params):
         save_freq=min(params["checkpoint_flow_every"], params["epochs_flow"]),
     )
 
-    earlystopping_callback = tf.keras.callbacks.EarlyStopping(
+    earlystopping_callback = tfk.callbacks.EarlyStopping(
         monitor="val_loss",
         patience=params["patience"],
     )
@@ -90,6 +80,10 @@ def train_flow(train_data, test_data, params):
     )
 
     NFmodel.trainable = False
+    tf.train.Checkpoint(
+        NFmodel,
+    ).save(checkpoint_filepath)
+
     print("Done training flow!")
 
     return NFmodel, flow

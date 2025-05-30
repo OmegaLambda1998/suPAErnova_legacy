@@ -1,18 +1,28 @@
+import os
+import random as rn
+
 import numpy as np
+import tf_keras as tfk
 import tensorflow as tf
-
-tfk = tf.keras
-tfkl = tf.keras.layers
-
 import tensorflow_probability as tfp
 
+tfkl = tfk.layers
 tfb = tfp.bijectors
 tfd = tfp.distributions
 
 
-def normalizing_flow(params, optimizer=tf.optimizers.Adam(1e-3)):
+def normalizing_flow(params, optimizer=None):
     """event_dim: dimensions of input data."""
+    # set random seeds
+    os.environ["PYTHONHASHSEED"] = str(params["seed"])
+    tf.random.set_seed(params["seed"])
+    np.random.seed(params["seed"])
+    rn.seed(params["seed"])
+    os.environ["TF_DETERMINISTIC_OPS"] = "1"
+
     train_phase = True
+    if optimizer is None:
+        optimizer = tfk.optimizers.Adam(1e-3)
 
     # Don't use time shift or amplitude in normalizing flow
     # Amplitude represents uncorrelated shift from peculiar velocity and/or gray instrumental effects
@@ -61,7 +71,7 @@ def normalizing_flow(params, optimizer=tf.optimizers.Adam(1e-3)):
             scale_diag=tf.ones(u_latent_dim),
         ),
         bijector=tfb.Chain(list(reversed(bijectors[:-1]))),
-    )  # ,
+    )
 
     z_ = tfkl.Input(
         shape=(u_latent_dim,),
@@ -79,5 +89,8 @@ def normalizing_flow(params, optimizer=tf.optimizers.Adam(1e-3)):
         optimizer=optimizer,
         loss=lambda _, log_prob: -log_prob,
     )
+
+    # Dummy run
+    model(tf.zeros((1, u_latent_dim), dtype=tf.float32))
 
     return model, flow
