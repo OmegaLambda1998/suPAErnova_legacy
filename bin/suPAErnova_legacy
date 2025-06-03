@@ -1,0 +1,60 @@
+#!/usr/bin/env sh
+
+# Follow however many symlinks are needed to get the true directory and name of this script
+SOURCE=${BASH_SOURCE[0]}
+while [ -L "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symlink
+    DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
+    SOURCE=$(readlink "$SOURCE")
+    [[ $SOURCE != /* ]] && SOURCE=$DIR/$SOURCE # if $SOURCE was a relative symlink, we need to resolve it relative to the path where the symlink file was located
+done
+SCRIPT_DIR=$( cd -P "$( dirname "$SOURCE" )/../" >/dev/null 2>&1 && pwd )
+SCRIPT_NAME="$( basename "$SOURCE" )"
+
+function main {
+    # --- Command ---
+    local cmd="python -m ${SCRIPT_NAME}"
+    local group=""
+
+    # --- Args ---
+    for arg in "${@}"; do
+        case ${arg} in
+            # End of args
+            --)
+                shift
+                break
+                ;;
+            # Groups args
+            --group=*)
+                group="${arg#*=}"
+                shift
+                ;;
+            test)
+                group="tests"
+                cmd="pytest"
+                shift
+                ;;
+            jupyter)
+                group="jupyter"
+                cmd="jupyter notebook"
+                shift
+                ;;
+        esac
+    done
+
+    local group_cmd=""
+    if [[ -n "${group}" ]]; then
+        group_cmd="--group ${group}"
+    fi
+
+    local uv_opt="${group_cmd} ${python_cmd}"
+
+    # --- Sync ---
+    echo "Running: 'uv sync ${uv_opt}'"
+    uv sync ${uv_opt}
+
+    # --- Run ---
+    echo "Running: 'uv run ${uv_opt} ${cmd} ${@}'"
+    uv run ${uv_opt} ${cmd} ${@}
+}
+
+main $@

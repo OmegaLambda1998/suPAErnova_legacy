@@ -23,6 +23,16 @@ supaernova-legacy = "supaernova_legacy:main"
 build-backend = "hatchling.build"
 requires = ["hatchling"]
 
+[dependency-groups]
+dev = ["pandas-stubs>=2.2.3.250308", "types-tensorflow>=2.18.0.20250506"]
+jupyter = ["jupyter>=1.1.1"]
+tests = [
+    "matplotlib>=3.10.3",
+    "pytest>=8.3.5",
+    "pytest-json-ctrf>=0.3.5",
+    "pytest-richer>=0.1.1",
+]
+
 [tool.ruff]
 # Enumerate all fixed violations.
 show-fixes = true
