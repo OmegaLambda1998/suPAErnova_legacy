@@ -1,4 +1,4 @@
-# !/usr/bin/env python
+#!/usr/bin/env python
 """This code constructs and trains the Autoencoder model, based on the parameters specified in the configuration file, config/train.yaml.
 
 The Autoencoder architecture is specified in models/autoencoder.py,

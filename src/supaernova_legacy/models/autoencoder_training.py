@@ -367,10 +367,10 @@ def save_model(model, params, data, nbatches, is_best=False) -> None:
         model_save.decoder.save(decoder_file)
 
         save_dict["parameters"] = params
-        np.save(
+        np.savez_compressed(
             os.path.join(
                 param_save_path,
-                f"{fname}",
+                f"{fname}.npz",
             ),
-            save_dict,
+            **save_dict,
         )

@@ -21,12 +21,14 @@ def load_data(
 
     if npz:
         # .npz file
-        data = {}
-
-        df = np.load(filename)
-        print(df)
-        for k in df.files:
-            data[k] = df[k]
+        with np.load(filename, allow_pickle=True) as io:
+            data = dict(io.items())
+        # data = {}
+        #
+        # df = np.load(filename)
+        # print(df)
+        # for k in df.files:
+        #     data[k] = df[k]
 
     if to_tensor:
         # convert dtype from numpy.float32 or np.float64 to tensor

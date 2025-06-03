@@ -1,14 +1,17 @@
+import os
+import random as rn
+from typing import TYPE_CHECKING
+
+import numpy as np
+import tf_keras as tfk
 import tensorflow as tf
-
-tfk = tf.keras
-tfkl = tf.keras.layers
-
 import tensorflow_probability as tfp
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 tfb = tfp.bijectors
 tfd = tfp.distributions
-
-import numpy as np
 
 
 # https://emcee.readthedocs.io/en/stable/tutorials/line/
@@ -37,18 +40,26 @@ class LogPosterior(tfk.Model):
         super().__init__()
         self.params = params
 
+        # set random seeds
+        os.environ["PYTHONHASHSEED"] = str(params["seed"])
+        tf.random.set_seed(params["seed"])
+        np.random.seed(params["seed"])
+        rn.seed(params["seed"])
+        os.environ["TF_DETERMINISTIC_OPS"] = "1"
+
         self.encoder = PAE.encoder  # encoder network
         self.decoder = PAE.decoder  # decoder network
         self.flow = PAE.flow  # normalizing network
 
-        self.x = data["spectra"]  # data
-        self.x_c = data["times"]  # conditional paramater
-        self.z_c = data["redshift"]  # redshift
-        self.sigma_x = data["sigma"]  # sigma noise
-        self.mask_x = data[
-            "mask"
-        ]  # some spectra may be missing, or wavelength bins masked
+        self.x = tf.convert_to_tensor(data["spectra"])  # data
+        self.x_c = tf.convert_to_tensor(data["times"])  # conditional paramater
+        self.z_c = tf.convert_to_tensor(data["redshift"])  # redshift
+        self.sigma_x = tf.convert_to_tensor(data["sigma"])  # sigma noise
+        self.mask_x = tf.convert_to_tensor(
+            data["mask"]
+        )  # some spectra may be missing, or wavelength bins masked
 
+        self.nsteps = params["num_samples"]
         self.nsamples = self.x.shape[0]
         self.n_timesamples = self.x.shape[1]
         self.data_dim = self.x.shape[2]
@@ -90,6 +101,63 @@ class LogPosterior(tfk.Model):
             )[:, -self.latent_dim_u :],
         )
 
+        self.map_results = {
+            "chain_min": tf.Variable(
+                [0.0] * self.nsamples, dtype=tf.float32, shape=[self.nsamples]
+            ),
+            "converged": tf.Variable(
+                [False] * self.nsamples, dtype=tf.bool, shape=[self.nsamples]
+            ),
+            "num_evaluations": tf.Variable([0], dtype=tf.int32, shape=[1]),
+            "num_chain_evaluations": tf.Variable([0], dtype=tf.int32, shape=[1]),
+            "negative_log_likelihood": tf.Variable(
+                [0.0] * self.nsamples, dtype=tf.float32, shape=[self.nsamples]
+            ),
+            "amplitude": tf.Variable(
+                [0.0] * self.nsamples, dtype=tf.float32, shape=[self.nsamples]
+            ),
+            "dtime": tf.Variable([0.0] * self.nsamples, dtype=tf.float32),
+            "MAPu": tf.Variable(
+                [[0.0] * self.latent_dim_u] * self.nsamples,
+                dtype=tf.float32,
+                shape=[self.nsamples, self.latent_dim_u],
+            ),
+            "amplitude_ini": tf.Variable(
+                [0.0] * self.nsamples, dtype=tf.float32, shape=[self.nsamples]
+            ),
+            "dtime_ini": tf.Variable(
+                [0.0] * self.nsamples, dtype=tf.float32, shape=[self.nsamples]
+            ),
+            "MAPu_ini": tf.Variable(
+                [[0.0] * self.latent_dim_u] * self.nsamples,
+                dtype=tf.float32,
+                shape=[self.nsamples, self.latent_dim_u],
+            ),
+            "initial_position": tf.Variable(
+                [[0.0] * (self.latent_dim_u + 2)] * self.nsamples,
+                dtype=tf.float32,
+                shape=[self.nsamples, self.latent_dim_u + 2],
+            ),
+        }
+
+        self.hmc_results = {
+            "samples": tf.Variable(
+                [[[0.0] * (self.latent_dim_u + 2)] * self.nsamples] * self.nsteps,
+                dtype=tf.float32,
+                shape=[self.nsteps, self.nsamples, self.latent_dim_u + 2],
+            ),
+            "step_sizes_final": tf.Variable(
+                [[0.0] * (self.latent_dim_u + 2)] * self.nsamples,
+                dtype=tf.float32,
+                shape=[self.nsamples, self.latent_dim_u + 2],
+            ),
+            "is_accepted": tf.Variable(
+                [0.0] * self.nsamples, dtype=tf.float32, shape=[self.nsamples]
+            ),
+            "start": tf.Variable(0.0, dtype=tf.float32, shape=()),
+            "end": tf.Variable(0.0, dtype=tf.float32, shape=()),
+        }
+
         # Initializations. Save initial values as seperate variables, as variables will be updated
         if self.params["rMAPini"]:
             print("Random initial MAPini")
@@ -126,6 +194,23 @@ class LogPosterior(tfk.Model):
 
         self.dtime = tf.Variable(self.dtime_ini)
         self.dtime.assign(self.dtime_ini)
+
+        self.ckpt_path: str = (
+            f"{'best' if not self.params['overfit'] else 'latest'}.model.checkpoint/"
+        )
+
+    def save_checkpoint(self, savepath: "Path") -> None:
+        (savepath / self.ckpt_path).mkdir(parents=True, exist_ok=True)
+        tf.train.Checkpoint(
+            self, map_results=self.map_results, hmc_results=self.hmc_results
+        ).save(f"{savepath / self.ckpt_path}/")
+
+    def load_checkpoint(self, loadpath: "Path") -> None:
+        tf.train.Checkpoint(
+            self, map_results=self.map_results, hmc_results=self.hmc_results
+        ).restore(
+            tf.train.latest_checkpoint(f"{loadpath / self.ckpt_path}/")
+        ).assert_existing_objects_matched()
 
     def call(self, input_params):
         inds_start_uparam = 0

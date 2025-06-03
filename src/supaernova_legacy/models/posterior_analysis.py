@@ -5,316 +5,427 @@ The Autoencoder architecture is specified in autoencoder.py,
 The flow architecture is specified in flows.py,
 """
 
-import tensorflow as tf
-
-print("tensorflow version: ", tf.__version__)
-print("devices: ", tf.config.list_physical_devices("GPU"))
-
-tfk = tf.keras
-tfkl = tf.keras.layers
-print("TFK Version", tfk.__version__)
-
-import tensorflow_probability as tfp
-
-tfb = tfp.bijectors
-tfd = tfp.distributions
-print("TFP Version", tfp.__version__)
-
 import os
-import sys
 import time
-import argparse
+from typing import TYPE_CHECKING
+from pathlib import Path
 
 import numpy as np
-import tensorboard.plugins.hparams as HParams
+import tensorflow as tf
+import tensorflow_probability as tfp
 
-from . import (
-    flows,
-    loader as model_loader,
-    losses,
-    posterior,
-)
+from . import posterior
+
+if TYPE_CHECKING:
+    from typing import Any
 
 
-def find_MAP(model, params):
+def find_MAP(model, params, savepath):
     ind_amplitude = 0
     ind_dtime = 0
     if params["train_dtime"]:
         ind_amplitude = 1
 
     for ichain in range(params["nchains"]):
-        # Run optimization from different starting points, and keep the one with lowest negative log likelihood
-        print(f"\n\nRunning chain: {ichain:d}\n\n")
+        savepath_i = savepath / str(ichain)
+        if (savepath_i / model.ckpt_path).exists():
+            print(f"Loading posterior model from {savepath_i}")
 
-        if ichain == 0:
-            initial_position = model.MAPu_ini.numpy()
-            if params["train_amplitude"]:
-                # add amplitude as first parameter
-                initial_position = np.c_[model.amplitude_ini.numpy(), initial_position]
-            if params["train_dtime"]:
-                # add delta time as last parameter
-                initial_position = np.c_[model.dtime_ini.numpy(), initial_position]
+            model.load_checkpoint(savepath_i)
 
-        if ichain > 1 and ichain < 10:
-            initial_position = model.get_latent_prior().sample(model.nsamples).numpy()
-            if params["train_amplitude"]:
-                # add amplitude as first parameter
-                initial_position = np.c_[
-                    model.get_amplitude_prior().sample(model.nsamples).numpy(),
-                    initial_position,
-                ]
-            if params["train_dtime"]:
-                # add delta time as last parameter
-                initial_position = np.c_[
-                    model.get_dtime_prior().sample(model.nsamples).numpy(),
-                    initial_position,
-                ]
+            chain_min = tf.convert_to_tensor(model.map_results["chain_min"]).numpy()
+            converged = tf.convert_to_tensor(model.map_results["converged"]).numpy()
+            num_evaluations = tf.convert_to_tensor(
+                model.map_results["num_evaluations"]
+            ).numpy()
+            num_chain_evaluations = tf.convert_to_tensor(
+                model.map_results["num_chain_evaluations"]
+            ).numpy()
+            negative_log_likelihood = tf.convert_to_tensor(
+                model.map_results["negative_log_likelihood"]
+            ).numpy()
+            amplitude = tf.convert_to_tensor(model.map_results["amplitude"]).numpy()
+            dtime = tf.convert_to_tensor(model.map_results["dtime"]).numpy()
+            MAPu = tf.convert_to_tensor(model.map_results["MAPu"]).numpy()
+            amplitude_ini = tf.convert_to_tensor(
+                model.map_results["amplitude_ini"]
+            ).numpy()
+            dtime_ini = tf.convert_to_tensor(model.map_results["dtime_ini"]).numpy()
+            MAPu_ini = tf.convert_to_tensor(model.map_results["MAPu_ini"]).numpy()
+            initial_position = tf.convert_to_tensor(
+                model.map_results["initial_position"]
+            ).numpy()
 
-        if ichain >= 10 and ichain < 20:
-            # initial_position = model.get_latent_prior().sample(model.nsamples).numpy()
-            initial_position = (
-                model.get_latent_prior().sample(model.nsamples).numpy() * 0.0
-            )
-            if params["train_amplitude"]:
-                # replace amplitude parameter with larger variance
-                # initial_position[:, 0] = model.get_amplitude_prior().sample(model.nsamples).numpy()
-                Amax = 1.5
-                Amin = -1.5
-                dA = (Amax - Amin) / (10 - 1)
-                A = (
+        else:
+            # Run optimization from different starting points, and keep the one with lowest negative log likelihood
+            print(f"Running chain: {ichain:d}")
+
+            if ichain == 0:
+                initial_position = model.MAPu_ini.numpy()
+                if params["train_amplitude"]:
+                    # add amplitude as first parameter
+                    initial_position = np.c_[
+                        model.amplitude_ini.numpy(), initial_position
+                    ]
+                if params["train_dtime"]:
+                    # add delta time as last parameter
+                    initial_position = np.c_[model.dtime_ini.numpy(), initial_position]
+
+            if ichain > 1 and ichain < 10:
+                initial_position = (
+                    model.get_latent_prior().sample(model.nsamples).numpy()
+                )
+                if params["train_amplitude"]:
+                    # add amplitude as first parameter
+                    initial_position = np.c_[
+                        model.get_amplitude_prior().sample(model.nsamples).numpy(),
+                        initial_position,
+                    ]
+                if params["train_dtime"]:
+                    # add delta time as last parameter
+                    initial_position = np.c_[
+                        model.get_dtime_prior().sample(model.nsamples).numpy(),
+                        initial_position,
+                    ]
+
+            if ichain >= 10 and ichain < 20:
+                # initial_position = model.get_latent_prior().sample(model.nsamples).numpy()
+                initial_position = (
+                    model.get_latent_prior().sample(model.nsamples).numpy() * 0.0
+                )
+                if params["train_amplitude"]:
+                    # replace amplitude parameter with larger variance
+                    # initial_position[:, 0] = model.get_amplitude_prior().sample(model.nsamples).numpy()
+                    Amax = 1.5
+                    Amin = -1.5
+                    dA = (Amax - Amin) / (10 - 1)
+                    A = (
+                        np.zeros(initial_position.shape[0], dtype=np.float32)
+                        + Amin
+                        + (ichain - 10) * dA
+                    )
+
+                    # add amplitude as first parameter
+                    initial_position = np.c_[A, initial_position]
+
+                if params["train_dtime"]:
+                    initial_position = np.c_[
+                        model.get_dtime_prior().sample(model.nsamples).numpy(),
+                        initial_position,
+                    ]
+
+            if ichain >= 20:
+                # vary Av
+                # get mean spectra in u
+                initial_position = (
+                    model.get_latent_prior().sample(model.nsamples).numpy() * 0.0
+                )
+                # transform to z
+                initial_position = model.flow.bijector.forward(initial_position).numpy()
+
+                # replace Av paramater with larger variance
+                Avmax = 0.5
+                Avmin = -0.5
+                dA = (Avmax - Avmin) / (params["nchains"] - 20)
+                Av = (
                     np.zeros(initial_position.shape[0], dtype=np.float32)
-                    + Amin
-                    + (ichain - 10) * dA
+                    + Avmin
+                    + (ichain - 20) * dA
                 )
 
+                initial_position[:, 0] = Av
+
+                # transform back to u
+                initial_position = model.flow.bijector.inverse(initial_position)
+
                 # add amplitude as first parameter
+                A = np.zeros(initial_position.shape[0], dtype=np.float32)
                 initial_position = np.c_[A, initial_position]
 
-            if params["train_dtime"]:
-                initial_position = np.c_[
-                    model.get_dtime_prior().sample(model.nsamples).numpy(),
-                    initial_position,
-                ]
-
-        if ichain >= 20:
-            # vary Av
-            # get mean spectra in u
-            initial_position = (
-                model.get_latent_prior().sample(model.nsamples).numpy() * 0.0
-            )
-            # transform to z
-            initial_position = model.flow.bijector.forward(initial_position).numpy()
-
-            # replace Av paramater with larger variance
-            Avmax = 0.5
-            Avmin = -0.5
-            dA = (Avmax - Avmin) / (params["nchains"] - 20)
-            Av = (
-                np.zeros(initial_position.shape[0], dtype=np.float32)
-                + Avmin
-                + (ichain - 20) * dA
-            )
-
-            initial_position[:, 0] = Av
-
-            # transform back to u
-            initial_position = model.flow.bijector.inverse(initial_position)
-
-            # add amplitude as first parameter
-            A = np.zeros(initial_position.shape[0], dtype=np.float32)
-            initial_position = np.c_[A, initial_position]
+                if params["train_dtime"]:
+                    initial_position = np.c_[
+                        model.get_dtime_prior().sample(model.nsamples).numpy(),
+                        initial_position,
+                    ]
 
             if params["train_dtime"]:
-                initial_position = np.c_[
-                    model.get_dtime_prior().sample(model.nsamples).numpy(),
-                    initial_position,
-                ]
+                initial_position[:, ind_dtime] *= params["dtime_norm"]
 
-        if params["train_dtime"]:
-            initial_position[:, ind_dtime] *= params["dtime_norm"]
+            def func_bfgs(x):
+                return tfp.math.value_and_gradient(lambda x: -1.0 / 100 * model(x), x)
 
-        def func_bfgs(x):
-            return tfp.math.value_and_gradient(lambda x: -1.0 / 100 * model(x), x)
+            results = tfp.optimizer.lbfgs_minimize(
+                func_bfgs,
+                initial_position=initial_position,
+                tolerance=params["tolerance"],
+                x_tolerance=params["tolerance"],
+                max_iterations=params["max_iterations"],
+                num_correction_pairs=1,
+            )  # ,
+            # max_line_search_iterations=params['max_line_search_iterations'])
 
-        results = tfp.optimizer.lbfgs_minimize(
-            func_bfgs,
-            initial_position=initial_position,
-            tolerance=params["tolerance"],
-            x_tolerance=params["tolerance"],
-            max_iterations=params["max_iterations"],
-            num_correction_pairs=1,
-        )  # ,
-        # max_line_search_iterations=params['max_line_search_iterations'])
+            # tf.print("Function minimum: {0}".format(results.objective_value))
+            num_chain_evaluations = [results.num_objective_evaluations]
+
+            if ichain == 0:
+                # initialize amplitude and dtime
+                amplitude = model.amplitude_ini.numpy()
+                amplitude_ini = model.amplitude_ini.numpy()
+
+                dtime = model.dtime_ini.numpy()
+                dtime_ini = model.dtime_ini.numpy()
+
+                chain_min = np.zeros(model.nsamples)
+                # Check convergence properties
+                converged = np.array(results.converged)
+                # Check that the argmin is close to the actual value.
+                num_evaluations = num_chain_evaluations
+
+                negative_log_likelihood = np.array(results.objective_value)
+
+                if params["train_amplitude"]:
+                    amplitude = np.array(results.position)[:, ind_amplitude]
+                    amplitude_ini = initial_position[:, ind_amplitude]
+                if params["train_dtime"]:
+                    dtime = (
+                        np.array(results.position)[:, ind_dtime] / params["dtime_norm"]
+                    )
+
+                MAPu = np.array(results.position)[:, model.istart_map :]
+                MAPu_ini = initial_position[:, model.istart_map :]
+
+                if params["train_dtime"]:
+                    dtime_ini = initial_position[:, ind_dtime]
+
+            else:
+                dm = results.objective_value < negative_log_likelihood
+
+                chain_min[dm] = ichain
+                # Check convergence properties
+                converged[dm] = np.array(results.converged)[dm]
+                # Check that the argmin is close to the actual value.
+                num_evaluations += results.num_objective_evaluations
+
+                negative_log_likelihood[dm] = np.array(results.objective_value)[dm]
+
+                #            inv_hessian[dm] = np.array(results.inverse_hessian_estimate)[dm]
+
+                if params["train_amplitude"]:
+                    amplitude[dm] = np.array(results.position)[dm, ind_amplitude]
+                    amplitude_ini[dm] = initial_position[dm, ind_amplitude]
+                if params["train_dtime"]:
+                    dtime[dm] = (
+                        np.array(results.position)[dm, ind_dtime] / params["dtime_norm"]
+                    )
+                    dtime_ini[dm] = initial_position[dm, ind_dtime]
+
+                MAPu[dm] = np.array(results.position)[dm, model.istart_map :]
+                MAPu_ini[dm] = initial_position[dm, model.istart_map :]
 
         if params["verbose"]:
             tf.print(
-                f"MAP initialization {ichain} converged. Num function evaluations: {results.num_objective_evaluations}"
+                f"MAP initialization {ichain} converged. Num function evaluations: {num_chain_evaluations[0]}"
             )
-            # tf.print("Function minimum: {0}".format(results.objective_value))
 
-        if ichain == 0:
-            # initialize amplitude and dtime
-            amplitude = model.amplitude_ini.numpy()
-            amplitude_ini = model.amplitude_ini.numpy()
+        model.map_results["chain_min"] = tf.Variable(chain_min, dtype=tf.float32)
+        model.map_results["converged"] = tf.Variable(converged, dtype=tf.bool)
+        model.map_results["num_evaluations"] = tf.Variable(
+            num_evaluations, dtype=tf.int32
+        )
+        model.map_results["num_chain_evaluations"] = tf.Variable(
+            num_chain_evaluations, dtype=tf.int32
+        )
+        model.map_results["negative_log_likelihood"] = tf.Variable(
+            negative_log_likelihood, dtype=tf.float32
+        )
+        model.map_results["amplitude"] = tf.Variable(amplitude, dtype=tf.float32)
+        model.map_results["dtime"] = tf.Variable(dtime, dtype=tf.float32)
+        model.map_results["MAPu"] = tf.Variable(MAPu, dtype=tf.float32)
+        model.map_results["amplitude_ini"] = tf.Variable(
+            amplitude_ini, dtype=tf.float32
+        )
+        model.map_results["dtime_ini"] = tf.Variable(dtime_ini, dtype=tf.float32)
+        model.map_results["MAPu_ini"] = tf.Variable(MAPu_ini, dtype=tf.float32)
+        model.map_results["initial_position"] = tf.Variable(
+            initial_position, dtype=tf.float32
+        )
 
-            dtime = model.dtime_ini.numpy()
-            dtime_ini = model.dtime_ini.numpy()
-
-            chain_min = np.zeros(model.nsamples)
-            # Check convergence properties
-            converged = np.array(results.converged)
-            # Check that the argmin is close to the actual value.
-            num_evaluations = [results.num_objective_evaluations]
-
-            negative_log_likelihood = np.array(results.objective_value)
-
-            if params["train_amplitude"]:
-                amplitude = np.array(results.position)[:, ind_amplitude]
-                amplitude_ini = initial_position[:, ind_amplitude]
-            if params["train_dtime"]:
-                dtime = np.array(results.position)[:, ind_dtime] / params["dtime_norm"]
-
-            MAPu = np.array(results.position)[:, model.istart_map :]
-            MAPu_ini = initial_position[:, model.istart_map :]
-
-            if params["train_dtime"]:
-                dtime_ini = initial_position[:, ind_dtime]
-
-        else:
-            dm = results.objective_value < negative_log_likelihood
-
-            chain_min[dm] = ichain
-            # Check convergence properties
-            converged[dm] = np.array(results.converged)[dm]
-            # Check that the argmin is close to the actual value.
-            num_evaluations += results.num_objective_evaluations
-
-            negative_log_likelihood[dm] = np.array(results.objective_value)[dm]
-
-            #            inv_hessian[dm] = np.array(results.inverse_hessian_estimate)[dm]
-
-            if params["train_amplitude"]:
-                amplitude[dm] = np.array(results.position)[dm, ind_amplitude]
-                amplitude_ini[dm] = initial_position[dm, ind_amplitude]
-            if params["train_dtime"]:
-                dtime[dm] = (
-                    np.array(results.position)[dm, ind_dtime] / params["dtime_norm"]
-                )
-                dtime_ini[dm] = initial_position[dm, ind_dtime]
-
-            MAPu[dm] = np.array(results.position)[dm, model.istart_map :]
-            MAPu_ini[dm] = initial_position[dm, model.istart_map :]
+        model.save_checkpoint(savepath_i)
 
     print(f"Min found on chain {chain_min}")
-    model.chain_min = chain_min
-    # Check convergence properties
-    model.converged = converged
 
-    # Check that the argmin is close to the actual value.
-    model.num_evaluations = num_evaluations
-
-    model.negative_log_likelihood = negative_log_likelihood
-
-    #    model.inv_hessian = inv_hessian
-
-    model.amplitude = amplitude
-    model.dtime = dtime
-    model.MAPu = MAPu
-    model.amplitude_ini = amplitude_ini
-    model.dtime_ini = dtime_ini
-    model.MAPu_ini = MAPu_ini
+    model.chain_min = tf.convert_to_tensor(model.map_results["chain_min"])
+    model.converged = tf.convert_to_tensor(model.map_results["converged"])
+    model.num_evaluations = tf.convert_to_tensor(model.map_results["num_evaluations"])
+    model.negative_log_likelihood = tf.convert_to_tensor(
+        model.map_results["negative_log_likelihood"]
+    )
+    model.amplitude = tf.convert_to_tensor(model.map_results["amplitude"])
+    model.dtime = tf.convert_to_tensor(model.map_results["dtime"])
+    model.MAPu = tf.convert_to_tensor(model.map_results["MAPu"])
+    model.amplitude_ini = tf.convert_to_tensor(model.map_results["amplitude_ini"])
+    model.dtime_ini = tf.convert_to_tensor(model.map_results["dtime_ini"])
+    model.MAPu_ini = tf.convert_to_tensor(model.map_results["MAPu_ini"])
 
     return model
 
 
-def run_HMC(model, params):
+def run_HMC(model, params, savepath_hmc):
     # Initialize the HMC transition kernel.
     # @tf.function(autograph=False)
 
-    num_warmup_steps = int(params["num_burnin_steps"] * 0.8)
+    if (savepath_hmc / model.ckpt_path).exists():
+        print(f"Loading posterior model from {savepath_hmc}")
+        model.load_checkpoint(savepath_hmc)
 
-    initial_position = tf.convert_to_tensor(model.MAPu).numpy()
-    if params["train_amplitude"] or params["use_amplitude"]:
-        # add amplitude as first parameter
-        initial_position = np.c_[
-            tf.convert_to_tensor(model.amplitude).numpy(), initial_position
-        ]
-    if params["train_dtime"]:
-        initial_position = np.c_[
-            tf.convert_to_tensor(model.dtime).numpy() * params["dtime_norm"],
-            initial_position,
-        ]
+        samples = tf.convert_to_tensor(model.hmc_results["samples"]).numpy()
+        step_sizes_final = tf.convert_to_tensor(
+            model.hmc_results["step_sizes_final"]
+        ).numpy()
+        is_accepted = tf.convert_to_tensor(model.hmc_results["is_accepted"]).numpy()
+        start = tf.convert_to_tensor(model.hmc_results["start"]).numpy()
+        end = tf.convert_to_tensor(model.hmc_results["end"]).numpy()
 
-    step_sizes = (
-        tf.zeros([initial_position.shape[0], initial_position.shape[1]])
-        + model.z_latent_std
-    )
-    # print('Initial step sizes', step_sizes)
+    else:
+        num_warmup_steps = int(params["num_burnin_steps"] * 0.8)
 
-    def unnormalized_posterior_log_prob(*args):
-        return model(*args)
+        initial_position = tf.convert_to_tensor(model.MAPu).numpy()
+        if params["train_amplitude"] or params["use_amplitude"]:
+            # add amplitude as first parameter
+            initial_position = np.c_[
+                tf.convert_to_tensor(model.amplitude).numpy(), initial_position
+            ]
+        if params["train_dtime"]:
+            initial_position = np.c_[
+                tf.convert_to_tensor(model.dtime).numpy()
+                * np.array(params["dtime_norm"], dtype=np.float32),
+                initial_position,
+            ]
 
-    @tf.function()
-    def sample_chain(ihmc=True):
-        # from https://www.tensorflow.org/probability/examples/TensorFlow_Probability_Case_Study_Covariance_Estimation
+        step_sizes = (
+            tf.zeros([initial_position.shape[0], initial_position.shape[1]])
+            + model.z_latent_std
+        )
+        # print('Initial step sizes', step_sizes)
 
-        if ihmc:
-            # run hmc
-            hmc = tfp.mcmc.HamiltonianMonteCarlo(
+        def unnormalized_posterior_log_prob(*args):
+            return model(*args)
+
+        def trace_fn(_, pkr, *_reducer_args):
+            return [
+                pkr.inner_results.accepted_results.step_size,
+                pkr.inner_results.is_accepted,
+            ]
+
+        pbar_burnin = tfp.experimental.mcmc.ProgressBarReducer(
+            params["num_burnin_steps"],
+            progress_bar_fn=tfp.experimental.mcmc.make_tqdm_progress_bar_fn(
+                description="burnin"
+            ),
+        )
+        pbar_burnin.initialize(None)
+
+        pbar = tfp.experimental.mcmc.ProgressBarReducer(
+            params["num_samples"],
+            progress_bar_fn=tfp.experimental.mcmc.make_tqdm_progress_bar_fn(
+                description="run"
+            ),
+        )
+        pbar.initialize(None)
+
+        initial_position = tf.convert_to_tensor(initial_position)
+
+        @tf.function
+        def sample_chain(ihmc=True):
+            # from https://www.tensorflow.org/probability/examples/TensorFlow_Probability_Case_Study_Covariance_Estimation
+
+            if ihmc:
+                # run hmc
+                hmc = tfp.mcmc.HamiltonianMonteCarlo(
+                    target_log_prob_fn=unnormalized_posterior_log_prob,
+                    num_leapfrog_steps=params[
+                        "num_leapfrog_steps"
+                    ],  # to improve convergence
+                    step_size=step_sizes,
+                )
+                #         state_gradients_are_stopped=True)
+
+                kernel = tfp.mcmc.SimpleStepSizeAdaptation(
+                    inner_kernel=hmc,
+                    num_adaptation_steps=num_warmup_steps,
+                    target_accept_prob=params["target_accept_rate"],
+                )
+
+                # Run the burn-in (with burn-in).
+                burnin_result = tfp.experimental.mcmc.sample_chain(
+                    kernel=kernel,
+                    num_results=params["num_burnin_steps"],
+                    current_state=initial_position,
+                    reducer=pbar_burnin,
+                    trace_fn=trace_fn,
+                    name="burnin",
+                )
+
+                burnin_state = burnin_result[-1]["current_state"]
+                burnin_kernel = burnin_result[-1]["kernel"]
+                burnin_kernel_results = burnin_result[-1]["previous_kernel_results"]
+
+                result = tfp.experimental.mcmc.sample_chain(
+                    kernel=burnin_kernel,
+                    num_results=params["num_samples"],
+                    current_state=burnin_state,
+                    previous_kernel_results=burnin_kernel_results,
+                    reducer=pbar,
+                    trace_fn=trace_fn,
+                    name="run",
+                )
+
+                samples = result[0][0]
+                step_sizes_final = result[-1][
+                    "previous_kernel_results"
+                ].inner_results.accepted_results.step_size
+                is_accepted = result[-1][
+                    "previous_kernel_results"
+                ].inner_results.is_accepted
+
+                return samples, step_sizes_final, is_accepted
+
+            # just do random walk
+            kernel = tfp.mcmc.RandomWalkMetropolis(
                 target_log_prob_fn=unnormalized_posterior_log_prob,
-                num_leapfrog_steps=params[
-                    "num_leapfrog_steps"
-                ],  # to improve convergence
-                step_size=step_sizes,
             )
-            #         state_gradients_are_stopped=True)
-
-            kernel = tfp.mcmc.SimpleStepSizeAdaptation(
-                inner_kernel=hmc,
-                num_adaptation_steps=num_warmup_steps,
-                target_accept_prob=params["target_accept_rate"],
-            )
-
             # Run the chain (with burn-in).
-            samples, [step_sizes_final, is_accepted] = tfp.mcmc.sample_chain(
+            samples, _is_accepted = tfp.mcmc.sample_chain(
                 num_results=params["num_samples"],
                 num_burnin_steps=params["num_burnin_steps"],
                 current_state=initial_position,
                 kernel=kernel,
-                # parallel_iterations = params['nchains'],
-                trace_fn=lambda _, pkr: [
-                    pkr.inner_results.accepted_results.step_size,
-                    pkr.inner_results.is_accepted,
-                ],
+            )
+            # parallel_iterations = params['nchains'])
+
+            return samples, np.full(
+                (samples[0].shape[0], samples[0].shape[1]), True, dtype=bool
             )
 
-            return samples, step_sizes_final, is_accepted
+        start = time.time()
 
-        # just do random walk
-        kernel = tfp.mcmc.RandomWalkMetropolis(
-            target_log_prob_fn=unnormalized_posterior_log_prob,
+        samples, step_sizes_final, is_accepted = sample_chain(params["ihmc"])
+        samples, step_sizes_final, is_accepted = (
+            samples.numpy(),
+            step_sizes_final.numpy(),
+            is_accepted.numpy(),
         )
-        # Run the chain (with burn-in).
-        samples, is_accepted = tfp.mcmc.sample_chain(
-            num_results=params["num_samples"],
-            num_burnin_steps=params["num_burnin_steps"],
-            current_state=initial_position,
-            kernel=kernel,
-        )
-        # parallel_iterations = params['nchains'])
+        end = time.time()
 
-        return samples, np.full(
-            (samples[0].shape[0], samples[0].shape[1]), True, dtype=bool
+        model.hmc_results["samples"] = tf.Variable(samples, dtype=tf.float32)
+        model.hmc_results["step_sizes_final"] = tf.Variable(
+            step_sizes_final, dtype=tf.float32
         )
+        model.hmc_results["is_accepted"] = tf.Variable(is_accepted, dtype=tf.float32)
+        model.hmc_results["start"] = tf.Variable(start, dtype=tf.float32)
+        model.hmc_results["end"] = tf.Variable(end, dtype=tf.float32)
 
-    start = time.time()
-    samples, step_sizes_final, is_accepted = sample_chain(params["ihmc"])
-    samples, step_sizes_final, is_accepted = (
-        samples.numpy(),
-        step_sizes_final.numpy(),
-        is_accepted.numpy(),
-    )
-    end = time.time()
+        model.save_checkpoint(savepath_hmc)
 
     print(
         "{:.2f} s elapsed for {:d} samples".format(
@@ -323,15 +434,17 @@ def run_HMC(model, params):
     )
     # print('Fraction of accepted = ', np.mean(is_accepted), np.mean(is_accepted, axis=0))
 
-    return samples, step_sizes_final, is_accepted
+    return samples, step_sizes_final, is_accepted, model
 
 
-def train(PAE, params, train_data, test_data, tstrs=None) -> None:
+def train(PAE, params, train_data, test_data, tstrs=None) -> dict[str, "Any"]:
     if tstrs is None:
         tstrs = ["train", "test"]
     z_latent_std = np.std(train_data["z_latent"][train_data["mask_sn"]], axis=0)
     u_latent_std = np.std(train_data["u_latent"][train_data["mask_sn"]], axis=0)
     z_latent_std[2:] = u_latent_std
+
+    dict_result = {}
 
     for tstr in tstrs:
         if tstr == "train":
@@ -347,11 +460,14 @@ def train(PAE, params, train_data, test_data, tstrs=None) -> None:
         file_base = os.path.basename(os.path.splitext(params[f"{tstr:s}_data_file"])[0])
 
         layer_str = "-".join(str(e) for e in params["encode_dims"])
-        file_path_out = f"{file_base}_posterior_{params['latent_dim']:02d}Dlatent_layers{layer_str}_{params['posterior_file_tail']}"
-        file_path_out = os.path.join(
-            params["PROJECT_DIR"], params["OUTPUT_DIR"], file_path_out
+        file_path_out = f"{file_base}_posterior_{params['latent_dim']:02d}Dlatent_layers{layer_str}_{tstr}_{params['posterior_file_tail']}"
+        file_path_out = (
+            Path(params["PROJECT_DIR"]) / params["OUTPUT_DIR"] / file_path_out
         )
 
+        data_map = {}
+        map_results = {}
+        hmc_results = {}
         training_hist = {}
         tstart = time.time()
         for batch_start in np.arange(0, nsn, batch_size):
@@ -388,7 +504,9 @@ def train(PAE, params, train_data, test_data, tstrs=None) -> None:
 
             if params["find_MAP"]:
                 # Find MAP
-                log_posterior = find_MAP(log_posterior, params)
+                savepath = file_path_out / f"batch_{batch_start}" / "MAP"
+                log_posterior = find_MAP(log_posterior, params, savepath)
+                map_results[batch_start] = log_posterior.map_results
 
                 # Save desired outputs in dictionary
                 data_map_batch["chain_min"] = log_posterior.chain_min
@@ -432,7 +550,12 @@ def train(PAE, params, train_data, test_data, tstrs=None) -> None:
                 # )
 
             if params["run_HMC"]:
-                samples, step_sizes_final, is_accepted = run_HMC(log_posterior, params)
+                # Run HMC
+                savepath = file_path_out / f"batch_{batch_start}" / "HMC"
+                samples, step_sizes_final, is_accepted, log_posterior = run_HMC(
+                    log_posterior, params, savepath
+                )
+                hmc_results[batch_start] = log_posterior.hmc_results
 
                 z_samples = (
                     log_posterior.flow.bijector.forward(
@@ -544,10 +667,16 @@ def train(PAE, params, train_data, test_data, tstrs=None) -> None:
         tend = time.time()
         print(f"\nTraining took {tend - tstart:.2f} s\n")
         # save to disk
-        dicts = [data_use, data_map]
+        dicts = [
+            data_use,
+            data_map,
+            {"map_results": map_results},
+            {"hmc_results": hmc_results},
+        ]
         dict_save = {}
         for d in dicts:
-            for k, v in d.items():
-                dict_save[k] = v
+            dict_save.update(dict(d.items()))
 
-        np.save(f"{file_path_out:s}", dict_save)
+        np.savez_compressed(f"{file_path_out}/posterior.npz", **dict_save)
+        dict_result[tstr] = dict_save
+    return dict_result

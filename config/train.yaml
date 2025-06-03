@@ -82,7 +82,7 @@ pae: &DEFAULT
   
   dropout: !!bool False
   batchnorm: !!bool False
-  kernel_regularizer: !!bool False # True
+  kernel_regularizer: !!bool True # False
   train_noise: !!bool True         # resample data within measurement errors
   train_time_uncertainty: !!bool True        # resample data within measurement errors	
   vary_mask: !!bool True          # mask <mask_vary_frac> of spectra for each SN

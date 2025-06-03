@@ -10,10 +10,6 @@ import os
 from typing import TYPE_CHECKING
 import argparse
 
-import tf_keras as tfk
-import tensorflow as tf
-import tensorflow_probability as tfp
-
 from supaernova_legacy.utils import data_loader
 from supaernova_legacy.models import (
     loader as model_loader,
@@ -25,11 +21,8 @@ from supaernova_legacy.utils.YParams import YParams
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-
-print("tensorflow version: ", tf.__version__)
-print("devices: ", tf.config.list_physical_devices("GPU"))
-print("TFK Version", tfk.__version__)
-print("TFP Version", tfp.__version__)
+    import tf_keras as ks
+    import tensorflow_probability as tfp
 
 
 def parse_arguments(inputs: "Sequence[str] | None") -> argparse.Namespace:
@@ -44,7 +37,7 @@ def parse_arguments(inputs: "Sequence[str] | None") -> argparse.Namespace:
 
 def train_flow(
     inputs: "Sequence[str] | None" = None,
-) -> tuple["ks.Model", tfp.distributions.TransformedDistribution]:
+) -> tuple["ks.Model", "tfp.distributions.TransformedDistribution", "YParams"]:
     args = parse_arguments(inputs)
 
     params = YParams(
@@ -129,10 +122,10 @@ def train_flow(
                 test_data,
                 params,
             )
-    return stage_results(params)
+    return nflow_results(params)
 
 
-def stage_results(
+def nflow_results(
     params: YParams,
 ):
     nf_model, flow = model_loader.load_flow(params)

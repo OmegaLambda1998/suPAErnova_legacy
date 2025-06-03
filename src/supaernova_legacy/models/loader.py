@@ -1,13 +1,11 @@
-import tensorflow as tf
-
-tfk = tf.keras
-tfk.config.enable_unsafe_deserialization()
-
 import os
 
 import numpy as np
+import tensorflow as tf
 
-from . import flows
+from . import flows, autoencoder
+
+tfk = tf.keras
 
 
 def load_ae_models(params):
@@ -31,12 +29,13 @@ def load_ae_models(params):
     if not params["overfit"]:
         model_params_out_path += "_best"
 
-    model_params_out_path += ".npy"
+    model_params_out_path += ".npz"
 
     if params["verbose"]:
         print("loading AE model from: ", model_params_out_path)
 
-    AE_model_params = np.load(model_params_out_path, allow_pickle="TRUE").item()
+    with np.load(model_params_out_path, allow_pickle=True) as io:
+        AE_model_params = {k: v.item() for k, v in io.items()}
 
     if params["verbose"]:
         print("AE model params: ", AE_model_params)

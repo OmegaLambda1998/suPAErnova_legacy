@@ -221,5 +221,5 @@ if __name__ == "__main__":
                 train_data[k_] = v_[inds_train]
                 test_data[k_] = v_[inds_test]
 
-        np.save(f"{train_file_head:s}_kfold{kfold:d}.npy", train_data)
-        np.save(f"{test_file_head:s}_kfold{kfold:d}.npy", test_data)
+        np.savez_compressed(f"{train_file_head:s}_kfold{kfold:d}.npz", **train_data)
+        np.savez_compressed(f"{test_file_head:s}_kfold{kfold:d}.npz", **test_data)

@@ -12,9 +12,6 @@ import os
 from typing import TYPE_CHECKING
 import argparse
 
-import tensorflow as tf
-import tensorflow_probability as tfp
-
 from supaernova_legacy.utils import data_loader, calculations
 from supaernova_legacy.models import (
     loader as model_loader,
@@ -23,17 +20,8 @@ from supaernova_legacy.models import (
 from supaernova_legacy.utils.YParams import YParams
 
 if TYPE_CHECKING:
+    from typing import Any
     from collections.abc import Sequence
-
-tfk = tf.keras
-tfkl = tf.keras.layers
-tfb = tfp.bijectors
-tfd = tfp.distributions
-
-print("tensorflow version: ", tf.__version__)
-print("devices: ", tf.config.list_physical_devices("GPU"))
-print("TFK Version", tfk.__version__)
-print("TFP Version", tfp.__version__)
 
 # def find_MAP(model, params, verbose=False):
 
@@ -58,7 +46,9 @@ def run_posterior_analysis(inputs: "Sequence[str] | None" = None) -> None:
 
     params = YParams(os.path.abspath(args.yaml_config), args.config, print_params=True)
 
-    for _il, latent_dim in enumerate(params["latent_dims"]):
+    results = {}
+
+    for il, latent_dim in enumerate(params["latent_dims"]):
         print(f"Training model with {latent_dim:d} latent dimensions")
         params["latent_dim"] = latent_dim
 
@@ -69,10 +59,12 @@ def run_posterior_analysis(inputs: "Sequence[str] | None" = None) -> None:
             os.path.join(params["PROJECT_DIR"], params["train_data_file"]),
             print_params=params["print_params"],
             set_data_min_val=params["set_data_min_val"],
+            npz=True,
         )
         test_data = data_loader.load_data(
             os.path.join(params["PROJECT_DIR"], params["test_data_file"]),
             set_data_min_val=params["set_data_min_val"],
+            npz=True,
         )
 
         # Mask certain supernovae
@@ -160,7 +152,15 @@ def run_posterior_analysis(inputs: "Sequence[str] | None" = None) -> None:
         tstrs = ["train", "test"]
         # tstrs = ['train']
         # tstrs = ['test']
-        posterior_analysis.train(PAE, params, train_data, test_data, tstrs=tstrs)
+        results[il] = posterior_analysis.train(
+            PAE, params, train_data, test_data, tstrs=tstrs
+        )
+
+    return posterior_results(params, results)
+
+
+def posterior_results(params: YParams, results: dict[str, "Any"]):
+    return (results, params)
 
 
 if __name__ == "__main__":
