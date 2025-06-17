@@ -3,19 +3,24 @@ import random as rn
 from typing import TYPE_CHECKING
 
 import numpy as np
-import tf_keras as tfk
+
+os.environ["TF_USE_LEGACY_KERAS"] = "1"
+os.environ["KERAS_BACKEND"] = "tensorflow"
+os.environ["TF_DETERMINISTIC_OPS"] = "1"
 import tensorflow as tf
+from tensorflow import keras as ks
 import tensorflow_probability as tfp
+from tensorflow_probability import (
+    bijectors as tfb,
+    distributions as tfd,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-tfb = tfp.bijectors
-tfd = tfp.distributions
-
 
 # https://emcee.readthedocs.io/en/stable/tutorials/line/
-class LogPosterior(tfk.Model):
+class LogPosterior(ks.Model):
     """Performs posterior analysis on a Probabalistic AutoEncoder (PAE: https://arxiv.org/abs/2006.05479)
     trained on supernovae (SN) spectral timeseries.
 
@@ -37,6 +42,8 @@ class LogPosterior(tfk.Model):
     """
 
     def __init__(self, PAE, params, data, sigma_time_bin_cent, sigma_time_grid) -> None:
+        ks.backend.clear_session()
+
         super().__init__()
         self.params = params
 
@@ -45,7 +52,6 @@ class LogPosterior(tfk.Model):
         tf.random.set_seed(params["seed"])
         np.random.seed(params["seed"])
         rn.seed(params["seed"])
-        os.environ["TF_DETERMINISTIC_OPS"] = "1"
 
         self.encoder = PAE.encoder  # encoder network
         self.decoder = PAE.decoder  # decoder network
@@ -122,6 +128,11 @@ class LogPosterior(tfk.Model):
                 dtype=tf.float32,
                 shape=[self.nsamples, self.latent_dim_u],
             ),
+            "MAPz": tf.Variable(
+                [[0.0] * self.latent_dim_u] * self.nsamples,
+                dtype=tf.float32,
+                shape=[self.nsamples, self.latent_dim_u],
+            ),
             "amplitude_ini": tf.Variable(
                 [0.0] * self.nsamples, dtype=tf.float32, shape=[self.nsamples]
             ),
@@ -129,6 +140,11 @@ class LogPosterior(tfk.Model):
                 [0.0] * self.nsamples, dtype=tf.float32, shape=[self.nsamples]
             ),
             "MAPu_ini": tf.Variable(
+                [[0.0] * self.latent_dim_u] * self.nsamples,
+                dtype=tf.float32,
+                shape=[self.nsamples, self.latent_dim_u],
+            ),
+            "MAPz_ini": tf.Variable(
                 [[0.0] * self.latent_dim_u] * self.nsamples,
                 dtype=tf.float32,
                 shape=[self.nsamples, self.latent_dim_u],

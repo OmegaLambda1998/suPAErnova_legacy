@@ -4,10 +4,13 @@ import random as rn
 from pathlib import Path
 
 import numpy as np
+
+os.environ["TF_USE_LEGACY_KERAS"] = "1"
+os.environ["KERAS_BACKEND"] = "tensorflow"
+os.environ["TF_DETERMINISTIC_OPS"] = "1"
 import tensorflow as tf
-import tensorflow.keras as ks
+from tensorflow import keras as ks
 import tensorflow_probability as tfp
-import tensorflow.keras.layers as tfkl
 
 
 def get_apply_grad_fn():
@@ -41,12 +44,6 @@ def compute_loss_ae(model, x, cond, sigma, mask):
 
     # from latent parameters and observation times reconstruct data
     x_pred = model.decode(z, cond, mask)
-
-    #    tf.print('X', x)
-    #    tf.print('X_pred', x_pred)
-    #    tf.print('z', z)
-    #    tf.print('sigma', sigma)
-    #    tf.print('mask', mask)
 
     # RECONSTRUCTION LOSS TERM
     # SN with more observations should be given greater weights, so take sum instead of mean
@@ -104,11 +101,11 @@ def compute_loss_ae(model, x, cond, sigma, mask):
 
     if model.params["loss_fn"].upper() == "HUBER":
         error = (x - x_pred) * mask
-        cond = tf.keras.backend.abs(error) < model.params["clip_delta"]
+        cond = tf.abs(error) < model.params["clip_delta"]
 
-        squared_loss = 0.5 * tf.keras.backend.square(error)
+        squared_loss = 0.5 * tf.square(error)
         linear_loss = model.params["clip_delta"] * (
-            tf.keras.backend.abs(error) - 0.5 * model.params["clip_delta"]
+            tf.abs(error) - 0.5 * model.params["clip_delta"]
         )
 
         loss = tf.reduce_mean(
@@ -117,11 +114,11 @@ def compute_loss_ae(model, x, cond, sigma, mask):
 
     if model.params["loss_fn"].upper() == "WHUBER":
         error = (x - x_pred) / (sigma + noise_floor) * mask
-        cond = tf.keras.backend.abs(error) < model.params["clip_delta"]
+        cond = tf.abs(error) < model.params["clip_delta"]
 
-        squared_loss = 0.5 * tf.keras.backend.square(error)
+        squared_loss = 0.5 * tf.square(error)
         linear_loss = model.params["clip_delta"] * (
-            tf.keras.backend.abs(error) - 0.5 * model.params["clip_delta"]
+            tf.abs(error) - 0.5 * model.params["clip_delta"]
         )
 
         loss = tf.reduce_mean(
@@ -137,7 +134,7 @@ def compute_loss_ae(model, x, cond, sigma, mask):
             tf.math.log((x_pred + 1e-9) / (x * mask + 1e-9)) * mask
         )  # 1./sigma * mask
         nan_error = (x - x_pred) / (sigma + noise_floor) * mask
-        nan_error = 0.5 * tf.keras.backend.square(nan_error)
+        nan_error = 0.5 * tf.square(nan_error)
         loss = tf.reduce_mean(
             tf.reduce_sum(tf.where(cond, mag_loss, nan_error), axis=(-2, -1))
         )
@@ -159,7 +156,6 @@ def compute_loss_ae(model, x, cond, sigma, mask):
         loss_offset = tf.reduce_mean(
             tf.abs(tf.reduce_sum((x - x_pred) * mask, axis=(-2, -1)))
         )
-        # tf.print(loss, loss_offset, loss_offset*model.params['lambda_amplitude_offset'])
         losses.append(loss_offset * model.params["lambda_amplitude_offset"])
     else:
         losses.append(tf.constant(0.0))
@@ -221,8 +217,6 @@ def compute_loss_ae(model, x, cond, sigma, mask):
         # normalize covariance by variance
         cov_z /= std_z
 
-        # tf.print('COV_z/std', cov_z)
-
         # only punish covariance of latent parameters with amplitude (first latent parameter)
         # and possibly with each other
         # Colorlaw can be correlated with non-amplitude latent parameters,
@@ -241,16 +235,13 @@ def compute_loss_ae(model, x, cond, sigma, mask):
 
         cov_mask = tf.convert_to_tensor(cov_mask)
 
-        # tf.print(cov_z)#, cov_mask)
         loss_cov = tf.reduce_sum(
             tf.square(tf.math.multiply(cov_z, cov_mask))
         ) / tf.reduce_sum(cov_mask)
 
-        # tf.print('DEBUG COVARIANCE', loss, loss_cov, loss_cov*model.params['lambda_covariance'])
         # loss_cov = tf.reduce_sum(tf.square(cov_z))
         losses.append(loss_cov * model.params["lambda_covariance"])
 
-    #    tf.print(loss_recon, loss_offset*model.params['lambda_amplitude_offset'], loss_amplitude*model.params['lambda_amplitude_parameter'], loss_cov * model.params['lambda_covariance'])
     #         if model.params['iloss_amplitude']:
     #             # AMPLITUDE PREDICTION LOSS
     #             lambda_amp = 100
@@ -259,14 +250,12 @@ def compute_loss_ae(model, x, cond, sigma, mask):
     #             else:
     #                 loss_amp = tf.reduce_sum(tf.square((A_pred - dl)))
 
-    # #             tf.print('z, A = ', z[:, 0:1].shape, A_pred.shape, z[:, 0:1], A_pred)
     #             loss += model.params['lambda_amplitude']*loss_amp
     else:
         losses.append(tf.constant(0.0))
 
     # KERNEL REGULARIZER LOSS
     if model.kernel_regularizer:
-        # tf.print('Kernel regularizer loss = ', model.losses, tf.math.reduce_sum(model.losses))
         losses.append(tf.math.reduce_sum(model.losses))
     else:
         losses.append(tf.constant(0.0))

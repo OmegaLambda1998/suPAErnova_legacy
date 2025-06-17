@@ -41,7 +41,9 @@ def parse_arguments(inputs: "Sequence[str] | None") -> argparse.Namespace:
     return parser.parse_args(inputs)
 
 
-def run_posterior_analysis(inputs: "Sequence[str] | None" = None) -> None:
+def run_posterior_analysis(
+    inputs: "Sequence[str] | None" = None,
+) -> tuple[YParams, dict[str, "Any"]]:
     args = parse_arguments(inputs)
 
     params = YParams(os.path.abspath(args.yaml_config), args.config, print_params=True)
@@ -159,8 +161,10 @@ def run_posterior_analysis(inputs: "Sequence[str] | None" = None) -> None:
     return posterior_results(params, results)
 
 
-def posterior_results(params: YParams, results: dict[str, "Any"]):
-    return (results, params)
+def posterior_results(
+    params: YParams, results: dict[str, "Any"]
+) -> tuple[YParams, dict[str, "Any"]]:
+    return (params, results)
 
 
 if __name__ == "__main__":

@@ -2,13 +2,16 @@ import os
 import random as rn
 
 import numpy as np
-import tf_keras as tfk
-import tensorflow as tf
-import tensorflow_probability as tfp
 
-tfkl = tfk.layers
-tfb = tfp.bijectors
-tfd = tfp.distributions
+os.environ["TF_USE_LEGACY_KERAS"] = "1"
+os.environ["KERAS_BACKEND"] = "tensorflow"
+os.environ["TF_DETERMINISTIC_OPS"] = "1"
+import tensorflow as tf
+from tensorflow import keras as ks
+from tensorflow_probability import (
+    bijectors as tfb,
+    distributions as tfd,
+)
 
 
 def normalizing_flow(params, optimizer=None):
@@ -18,11 +21,10 @@ def normalizing_flow(params, optimizer=None):
     tf.random.set_seed(params["seed"])
     np.random.seed(params["seed"])
     rn.seed(params["seed"])
-    os.environ["TF_DETERMINISTIC_OPS"] = "1"
 
     train_phase = True
     if optimizer is None:
-        optimizer = tfk.optimizers.Adam(1e-3)
+        optimizer = ks.optimizers.Adam(1e-3)
 
     # Don't use time shift or amplitude in normalizing flow
     # Amplitude represents uncorrelated shift from peculiar velocity and/or gray instrumental effects
@@ -73,14 +75,14 @@ def normalizing_flow(params, optimizer=None):
         bijector=tfb.Chain(list(reversed(bijectors[:-1]))),
     )
 
-    z_ = tfkl.Input(
+    z_ = ks.layers.Input(
         shape=(u_latent_dim,),
         dtype=tf.float32,
     )
 
     log_prob_ = flow.log_prob(z_)
 
-    model = tfk.Model(
+    model = ks.Model(
         inputs=z_,
         outputs=log_prob_,
     )
@@ -88,9 +90,7 @@ def normalizing_flow(params, optimizer=None):
     model.compile(
         optimizer=optimizer,
         loss=lambda _, log_prob: -log_prob,
+        # run_eagerly=True,
     )
-
-    # Dummy run
-    model(tf.zeros((1, u_latent_dim), dtype=tf.float32))
 
     return model, flow

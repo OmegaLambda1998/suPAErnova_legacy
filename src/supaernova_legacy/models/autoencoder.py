@@ -3,78 +3,20 @@ import random as rn
 from typing import TYPE_CHECKING, Self
 from pathlib import Path
 
-import keras
 import numpy as np
+
+os.environ["TF_USE_LEGACY_KERAS"] = "1"
+os.environ["KERAS_BACKEND"] = "tensorflow"
+os.environ["TF_DETERMINISTIC_OPS"] = "1"
 import tensorflow as tf
-import tensorflow.keras as ks
-import tensorflow.keras.layers as tfkl
+from tensorflow import keras as ks
 
 if TYPE_CHECKING:
     from typing import Any
     from collections.abc import Callable
 
-# Function registry
-AE_FUNCTION_REGISTRY: dict[str, "Callable[..., Any]"] = {
-    "reduce_min": tf.reduce_min,
-    "reduce_max": tf.reduce_max,
-    "reduce_sum": tf.reduce_sum,
-    "math.maximum": tf.math.maximum,
-    "math.subtract": tf.math.subtract,
-    "nn.relu": tf.nn.relu,
-}
 
-
-@keras.saving.register_keras_serializable()
-class AEFunctionLayer(ks.layers.Layer):
-    def __init__(self, *, fn: "str | Callable[..., Any]", **kwargs: "Any") -> None:
-        super().__init__(**kwargs)
-        if isinstance(fn, str):
-            if fn not in AE_FUNCTION_REGISTRY:
-                msg = f"Function '{fn}' is not registered."
-                raise ValueError(msg)
-            self.fn: "Callable[..., Any]" = AE_FUNCTION_REGISTRY[fn]
-            self.fn_name: str | None = fn
-        else:
-            self.fn = fn
-            self.fn_name = self._infer_fn_name(fn)
-
-        if self.fn_name is None or self.fn_name not in AE_FUNCTION_REGISTRY:
-            msg = f"Function {self.fn} not in {list(AE_FUNCTION_REGISTRY.keys())}. Function must be from the registry to be serializable."
-            raise ValueError(msg)
-        if AE_FUNCTION_REGISTRY[self.fn_name] is not self.fn:
-            msg = f"Function {self.fn_name} should be {AE_FUNCTION_REGISTRY[self.fn_name]} but is {self.fn}"
-            raise ValueError(msg)
-
-    def call(self, x, *args, **kwargs):
-        if isinstance(x, tf.sparse.SparseTensor):
-            x = tf.sparse.to_dense(x)
-        return self.fn(x, *args, **kwargs)
-
-    def get_config(self) -> dict[str, "Any"]:
-        config = super().get_config()
-        config.update({"fn": self.fn_name})
-        return config
-
-    @classmethod
-    def from_config(cls, config: dict[str, "Any"]) -> Self:
-        return cls(**config)
-
-    def _infer_fn_name(self, fn: "Callable[..., Any]") -> str | None:
-        for name, registered_fn in AE_FUNCTION_REGISTRY.items():
-            if registered_fn is fn:
-                return name
-        return None
-
-
-reduce_min = AEFunctionLayer(fn="reduce_min")
-reduce_max = AEFunctionLayer(fn="reduce_max")
-reduce_sum = AEFunctionLayer(fn="reduce_sum")
-math_maximum = AEFunctionLayer(fn="math.maximum")
-math_subtract = AEFunctionLayer(fn="math.subtract")
-relu = AEFunctionLayer(fn="nn.relu")
-
-
-@keras.saving.register_keras_serializable()
+@ks.utils.register_keras_serializable()
 class AutoEncoder(tf.keras.Model):
     """Autoencoder with option for physical parameterization of the latent space,
     conditioned on the phase of observation.
@@ -152,7 +94,6 @@ class AutoEncoder(tf.keras.Model):
         tf.random.set_seed(params["seed"])
         np.random.seed(params["seed"])
         rn.seed(params["seed"])
-        os.environ["TF_DETERMINISTIC_OPS"] = "1"
 
         # build models
         self.encoder = self.build_encoder()
@@ -173,13 +114,13 @@ class AutoEncoder(tf.keras.Model):
         step 1: Allow Delta M and A_V to vary
         step 2: Allow z_1, ... to vary
         """
-        encode_inputs_data = tfkl.Input(
+        encode_inputs_data = ks.layers.Input(
             shape=(self.params["n_timestep"], self.params["data_dim"])
         )
-        encode_inputs_cond = tfkl.Input(
+        encode_inputs_cond = ks.layers.Input(
             shape=(self.params["n_timestep"], self.params["cond_dim"])
         )
-        encode_inputs_mask = tfkl.Input(
+        encode_inputs_mask = ks.layers.Input(
             shape=(self.params["n_timestep"], self.params["data_dim"])
         )
 
@@ -189,12 +130,12 @@ class AutoEncoder(tf.keras.Model):
         if self.params["layer_type"].upper() == "DENSE":
             # Append time as additional parameter.
             # If convolutional layers, instead append after convolutions
-            encode_x = tfkl.concatenate([encode_inputs_data, encode_inputs_cond])
+            encode_x = ks.layers.concatenate([encode_inputs_data, encode_inputs_cond])
 
         for iunit, nunit in enumerate(self.params["encode_dims"][:-1]):
             # fully connected layer
             if self.params["layer_type"].upper() == "DENSE":
-                encode_x = tfkl.Dense(
+                encode_x = ks.layers.Dense(
                     nunit,
                     activation=self.activation,
                     kernel_regularizer=self.kernel_regularizer,
@@ -208,7 +149,7 @@ class AutoEncoder(tf.keras.Model):
                     # convolutional layer
                     encode_x = tf.expand_dims(encode_x, axis=-1)
 
-                    encode_x = tfkl.Conv2D(
+                    encode_x = ks.layers.Conv2D(
                         nunit,
                         kernel_size=(1, self.params["kernel_size"]),
                         strides=(1, self.params["stride"]),
@@ -222,7 +163,7 @@ class AutoEncoder(tf.keras.Model):
                     )(encode_x)
                 else:
                     # convolutional layer
-                    encode_x = tfkl.Conv2D(
+                    encode_x = ks.layers.Conv2D(
                         nunit,
                         kernel_size=(1, self.params["kernel_size"]),
                         strides=(1, self.params["stride"]),
@@ -236,35 +177,35 @@ class AutoEncoder(tf.keras.Model):
 
             if self.params["dropout"]:
                 # dropout along features dimension, keeping dropout along time dimension consistent
-                encode_x = tfkl.Dropout(
+                encode_x = ks.layers.Dropout(
                     self.params["dropout_rate"],
                     noise_shape=[None, 1, None],
                 )(encode_x, training=self.training)
 
             if self.params["batchnorm"]:
-                encode_x = tfkl.BatchNormalization()(encode_x)
+                encode_x = ks.layers.BatchNormalization()(encode_x)
 
         if self.params["layer_type"].upper() == "CONVOLUTION":
             # reshape to pass to Dense layers
             encode_x_shape = encode_x.shape
             self.encode_x_shape = encode_x_shape
-            encode_x = tfkl.Reshape((
+            encode_x = ks.layers.Reshape((
                 encode_x_shape[-3],
                 encode_x_shape[-2] * encode_x_shape[-1],
             ))(encode_x)
 
         # add conditional time parameter as new feature
         if self.params["layer_type"].upper() == "CONVOLUTION":
-            encode_x = tfkl.concatenate([encode_x, encode_inputs_cond])
+            encode_x = ks.layers.concatenate([encode_x, encode_inputs_cond])
 
         # dense layers
-        encode_x = tfkl.Dense(
+        encode_x = ks.layers.Dense(
             self.params["encode_dims"][-1],
             activation=self.activation,
             kernel_regularizer=self.kernel_regularizer,
         )(encode_x)
 
-        encode_x = tfkl.Dense(
+        encode_x = ks.layers.Dense(
             self.params["latent_dim"] + self.num_physical_latent_dims,
             kernel_regularizer=self.kernel_regularizer,
             use_bias=False,
@@ -272,9 +213,9 @@ class AutoEncoder(tf.keras.Model):
 
         # Need to mask time samples that do not exist = take mean of non masked latent variables
         # return is_kept: (N_sn, N_spectra) = 0 if any wavelength bin was masked, as bad value will effect encoding
-        is_kept = reduce_min(encode_inputs_mask, axis=-1, keepdims=True)
-        encode_outputs = reduce_sum(encode_x * is_kept, axis=-2) / math_maximum(
-            reduce_sum(is_kept, axis=-2),
+        is_kept = tf.reduce_min(encode_inputs_mask, axis=-1, keepdims=True)
+        encode_outputs = tf.reduce_sum(encode_x * is_kept, axis=-2) / tf.math.maximum(
+            tf.reduce_sum(is_kept, axis=-2),
             tf.convert_to_tensor(1, dtype=tf.float32),
         )
 
@@ -312,32 +253,32 @@ class AutoEncoder(tf.keras.Model):
             # This roundabout way is required due to the dreaded TensorFlow error:
             # TypeError: 'Tensor' object does not support item assignment
             if self.training:
-                is_kept = reduce_max(is_kept[..., 0], axis=-1)
+                is_kept = tf.reduce_max(is_kept[..., 0], axis=-1)
 
-                batch_mean_dtime = reduce_sum(
+                batch_mean_dtime = tf.reduce_sum(
                     encode_dtime * is_kept, axis=0
-                ) / reduce_sum(is_kept)
-                encode_dtime = tfkl.subtract([encode_dtime, batch_mean_dtime])
+                ) / tf.reduce_sum(is_kept)
+                encode_dtime = ks.layers.subtract([encode_dtime, batch_mean_dtime])
 
-                batch_mean_amplitude = reduce_sum(
+                batch_mean_amplitude = tf.reduce_sum(
                     encode_amplitude * is_kept, axis=0
-                ) / reduce_sum(is_kept)
-                encode_amplitude = tfkl.subtract([
+                ) / tf.reduce_sum(is_kept)
+                encode_amplitude = ks.layers.subtract([
                     encode_amplitude,
                     batch_mean_amplitude,
                 ])
 
-                batch_mean_color = reduce_sum(
+                batch_mean_color = tf.reduce_sum(
                     encode_color * is_kept, axis=0
-                ) / reduce_sum(is_kept)
-                encode_color = tfkl.subtract([encode_color, batch_mean_color])
+                ) / tf.reduce_sum(is_kept)
+                encode_color = ks.layers.subtract([encode_color, batch_mean_color])
 
             else:
                 encode_dtime -= self.bn_moving_means[0]
                 encode_amplitude -= self.bn_moving_means[1]
                 encode_color -= self.bn_moving_means[2]
 
-            encode_outputs = tfkl.concatenate([
+            encode_outputs = ks.layers.concatenate([
                 encode_dtime,
                 encode_amplitude,
                 encode_color,
@@ -359,20 +300,20 @@ class AutoEncoder(tf.keras.Model):
         The decoder reconstructs the data, under the following form:
         Flux(phase, wavelength) = decoder(z, phase + Delta phase) * 18^(-0.4*(Delta M + Delta A_V * CL(lambda)))
         """
-        decode_inputs_latent = tfkl.Input(
+        decode_inputs_latent = ks.layers.Input(
             shape=(self.params["latent_dim"] + self.num_physical_latent_dims,),
             name="latent_params",
         )
-        decode_inputs_cond = tfkl.Input(
+        decode_inputs_cond = ks.layers.Input(
             shape=(self.params["n_timestep"], self.params["cond_dim"]),
             name="conditional_params",
         )
-        decode_inputs_mask = tfkl.Input(
+        decode_inputs_mask = ks.layers.Input(
             shape=(self.params["n_timestep"], self.params["data_dim"])
         )
 
         # Repeat latent vector to match number of data timesteps
-        decode_latent = tfkl.RepeatVector(self.params["n_timestep"])(
+        decode_latent = ks.layers.RepeatVector(self.params["n_timestep"])(
             decode_inputs_latent
         )
 
@@ -385,15 +326,15 @@ class AutoEncoder(tf.keras.Model):
             decode_latent = decode_latent[..., self.num_physical_latent_dims :]
 
             # Concatenate physical (non time-varying) parameters
-            decode_x = tfkl.concatenate([
+            decode_x = ks.layers.concatenate([
                 decode_latent,
                 decode_inputs_cond + decode_dtime,
             ])
 
         else:
-            decode_x = tfkl.concatenate([decode_latent, decode_inputs_cond])
+            decode_x = ks.layers.concatenate([decode_latent, decode_inputs_cond])
 
-        decode_x = tfkl.Dense(
+        decode_x = ks.layers.Dense(
             self.params["decode_dims"][0],
             activation=self.activation,
             kernel_regularizer=self.kernel_regularizer,
@@ -403,7 +344,7 @@ class AutoEncoder(tf.keras.Model):
         for iunit, nunit in enumerate(self.params["decode_dims"][1:]):
             if self.params["layer_type"].upper() == "DENSE":
                 # fully connected network
-                decode_x = tfkl.Dense(
+                decode_x = ks.layers.Dense(
                     nunit,
                     activation=self.activation,
                     kernel_regularizer=self.kernel_regularizer,
@@ -414,19 +355,19 @@ class AutoEncoder(tf.keras.Model):
                 # from (batch_shape,H,W) to (batch_shape,H,W,C=1) in order to use Conv2D
                 # keep first dimension of kernel_size and stride as 1 in order to operate along spectra only
                 if iunit == 0:
-                    decode_x = tfkl.Dense(
+                    decode_x = ks.layers.Dense(
                         self.encode_x_shape[-2] * self.encode_x_shape[-1],
                         activation=self.activation,
                         kernel_regularizer=self.kernel_regularizer,
                     )(decode_x)
 
-                    decode_x = tfkl.Reshape((
+                    decode_x = ks.layers.Reshape((
                         self.params["n_timestep"],
                         self.encode_x_shape[-2],
                         self.encode_x_shape[-1],
                     ))(decode_x)
 
-                decode_x = tfkl.Conv2DTranspose(
+                decode_x = ks.layers.Conv2DTranspose(
                     nunit,
                     kernel_size=(1, self.params["kernel_size"]),
                     strides=(1, self.params["stride"]),
@@ -443,22 +384,22 @@ class AutoEncoder(tf.keras.Model):
             #                                                   noise_shape=[None, 1, None])(decode_x, training=self.training)
 
             if self.params["batchnorm"]:
-                decode_x = tfkl.BatchNormalization()(decode_x)
+                decode_x = ks.layers.BatchNormalization()(decode_x)
 
         if self.params["layer_type"].upper() == "CONVOLUTION":
-            decode_outputs = tfkl.Reshape((
+            decode_outputs = ks.layers.Reshape((
                 self.params["n_timestep"],
                 decode_x.shape[-2] * decode_x.shape[-1],
             ))(decode_x)
 
         else:
-            decode_outputs = tfkl.Dense(
+            decode_outputs = ks.layers.Dense(
                 self.params["data_dim"], kernel_regularizer=self.kernel_regularizer
             )(decode_x)
 
         if self.params["colorlaw_preset"]:
             # Use input colorlaw, likely Fitzpatrick99
-            decode_colorlaw = tfkl.Dense(
+            decode_colorlaw = ks.layers.Dense(
                 self.params["data_dim"],
                 kernel_initializer=self.colorlaw_init,
                 name="color_law",
@@ -467,7 +408,7 @@ class AutoEncoder(tf.keras.Model):
             )(decode_color)
 
         else:
-            decode_colorlaw = tfkl.Dense(
+            decode_colorlaw = ks.layers.Dense(
                 self.params["data_dim"],
                 kernel_initializer=self.colorlaw_init,
                 name="color_law",
@@ -481,7 +422,7 @@ class AutoEncoder(tf.keras.Model):
             decode_outputs *= 10 ** (-0.4 * (decode_colorlaw + decode_amplitude))
 
         if not self.training:
-            decode_outputs = relu(decode_outputs)
+            decode_outputs = tf.nn.relu(decode_outputs)
 
         return ks.Model(
             inputs=[
@@ -490,7 +431,7 @@ class AutoEncoder(tf.keras.Model):
                 decode_inputs_mask,
             ],
             outputs=decode_outputs
-            * reduce_max(
+            * tf.reduce_max(
                 decode_inputs_mask, axis=-1, keepdims=True
             ),  # zero spectra that do not exist
         )

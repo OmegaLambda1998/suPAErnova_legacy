@@ -200,11 +200,12 @@ def train_ae(
 
 
 def stage_results(params: YParams) -> tuple[autoencoder.AutoEncoder, YParams]:
-    ae_model = autoencoder.AutoEncoder(params, training=False)
     encoder, decoder, ae_params = model_loader.load_ae_models(params)
+    ae_model = autoencoder.AutoEncoder(
+        params, training=False, bn_moving_means=ae_params["moving_means"]
+    )
     ae_model.encoder.set_weights(encoder.get_weights())
     ae_model.decoder.set_weights(decoder.get_weights())
-    ae_model.bn_moving_means = ae_params["moving_means"]
     return (ae_model, ae_params)
 
 

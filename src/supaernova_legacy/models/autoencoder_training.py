@@ -10,7 +10,12 @@ import os
 import time
 
 import numpy as np
+
+os.environ["TF_USE_LEGACY_KERAS"] = "1"
+os.environ["KERAS_BACKEND"] = "tensorflow"
+os.environ["TF_DETERMINISTIC_OPS"] = "1"
 import tensorflow as tf
+from tensorflow import keras as ks
 
 from . import losses, autoencoder
 
@@ -178,7 +183,7 @@ def train_model(train_data, val_data, test_data, model):
 
     if model.params["scheduler"].upper() == "EXPONENTIAL":
         # Set up learning rate scheduler
-        lr = tf.keras.optimizers.schedules.ExponentialDecay(
+        lr = ks.optimizers.schedules.ExponentialDecay(
             initial_learning_rate=lr,
             decay_steps=model.params["lr_decay_steps"],
             decay_rate=model.params["lr_decay_rate"],
@@ -186,9 +191,9 @@ def train_model(train_data, val_data, test_data, model):
 
     # Set up optimizer
     if model.params["optimizer"].upper() == "ADAM":
-        optimizer = tf.keras.optimizers.Adam(learning_rate=lr)
+        optimizer = ks.optimizers.Adam(learning_rate=lr)
     elif model.params["optimizer"].upper() == "ADAMW":
-        wd_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
+        wd_schedule = ks.optimizers.schedules.ExponentialDecay(
             initial_learning_rate=model.params["weight_decay_rate"],
             decay_steps=model.params["lr_decay_steps"],
             decay_rate=model.params["lr_decay_rate"],
@@ -200,10 +205,10 @@ def train_model(train_data, val_data, test_data, model):
         # )
         # optimizer.weight_decay = lambda: wd_schedule(optimizer.iterations)
 
-        optimizer = tf.keras.optimizers.AdamW(wd_schedule)
+        optimizer = ks.optimizers.AdamW(wd_schedule)
 
     elif model.params["optimizer"].upper() == "SGD":
-        optimizer = tf.keras.optimizers.SGD(
+        optimizer = ks.optimizers.SGD(
             learning_rate=lr,
             momentum=0.9,
         )
@@ -266,10 +271,12 @@ def train_model(train_data, val_data, test_data, model):
             test_loss_hist[val_iteration, 3] = test_loss_terms[2].numpy()
 
             print(
-                f"\nepoch={epoch:d}, time={end_time - start_time:.3f}s\n (total_loss, loss_recon, loss_offset, loss_amplitude, loss_cov, loss_model)\ntrain loss: {[float(i) for i in training_loss_terms]}\nval loss: {[float(i) for i in val_loss_terms]}\ntest loss: {[float(i) for i in test_loss_terms]}"
+                f"\nepoch={epoch:d}, time={end_time - start_time:.3f}s\n (total_loss, loss_recon, loss_offset, loss_amplitude, loss_cov, loss_model)\ntrain loss: {[f'{float(i):.2E}' for i in training_loss_terms]}\nval loss: {[f'{float(i):.2E}' for i in val_loss_terms]}\ntest loss: {[f'{float(i):.2E}' for i in test_loss_terms]}"
             )
             if model.params["scheduler"].upper() == "EXPONENTIAL":
-                print(f"Learning rate is currently: {optimizer.learning_rate:.6f}")
+                print(
+                    f"Learning rate is currently: {optimizer.learning_rate.numpy():.6f}"
+                )
 
             if model.params["optimizer"].upper() == "ADAMW":
                 print(f"Weight decay is currently: {optimizer.weight_decay:.6f}")
@@ -321,11 +328,11 @@ def save_model(model, params, data, nbatches, is_best=False) -> None:
         # Save model
         encoder_file = os.path.join(
             model_save_path,
-            f"encoder_{fname}.keras",
+            f"encoder_{fname}",
         )
         decoder_file = os.path.join(
             model_save_path,
-            f"decoder_{fname}.keras",
+            f"decoder_{fname}",
         )
 
         save_dict = {}

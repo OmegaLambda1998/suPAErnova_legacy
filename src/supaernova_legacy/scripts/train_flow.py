@@ -10,10 +10,13 @@ import os
 from typing import TYPE_CHECKING
 import argparse
 
+os.environ["TF_USE_LEGACY_KERAS"] = "1"
+os.environ["KERAS_BACKEND"] = "tensorflow"
+os.environ["TF_DETERMINISTIC_OPS"] = "1"
+
 from supaernova_legacy.utils import data_loader
 from supaernova_legacy.models import (
     loader as model_loader,
-    autoencoder,
     flow_training,
 )
 from supaernova_legacy.utils.YParams import YParams
@@ -21,7 +24,7 @@ from supaernova_legacy.utils.YParams import YParams
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    import tf_keras as ks
+    from tensorflow import keras as ks
     import tensorflow_probability as tfp
 
 

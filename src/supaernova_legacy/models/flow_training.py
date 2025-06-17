@@ -8,23 +8,25 @@ and the loss terms are specified in models/losses.py.
 
 import os
 
-import tf_keras as tfk
+os.environ["TF_USE_LEGACY_KERAS"] = "1"
+os.environ["KERAS_BACKEND"] = "tensorflow"
+os.environ["TF_DETERMINISTIC_OPS"] = "1"
 import tensorflow as tf
-
-# %pip install tensorflow-probability==0.9.0
+from tensorflow import keras as ks
 import tensorflow_probability as tfp
+from tensorflow_probability import (
+    bijectors as tfb,
+    distributions as tfd,
+)
 
 from . import (
     flows,
 )
 
-tfb = tfp.bijectors
-tfd = tfp.distributions
-tfkl = tfk.layers
-print("tensorflow version: ", tf.__version__)
-print("devices: ", tf.config.list_physical_devices("GPU"))
-print("TFK Version", tfk.__version__)
-print("TFP Version", tfp.__version__)
+# print("tensorflow version: ", tf.__version__)
+# print("devices: ", tf.config.list_physical_devices("GPU"))
+# print("TFK Version", ks.__version__)
+# print("TFP Version", tfp.__version__)
 
 
 def train_flow(train_data, test_data, params):
@@ -32,7 +34,7 @@ def train_flow(train_data, test_data, params):
     Can definitely be improved/should be later,
     as the flow does not always train well in high dimensions.
     """
-    optimizer = tfk.optimizers.Adam(params["lr_flow"])
+    optimizer = ks.optimizers.Adam(params["lr_flow"])
 
     # Don't use time shift or amplitude in normalizing flow
     # Amplitude represents uncorrelated shift from peculiar velocity and/or gray instrumental effects
@@ -47,10 +49,10 @@ def train_flow(train_data, test_data, params):
     layers_str = "-".join(str(e) for e in params["encode_dims"])
     checkpoint_filepath = (
         f"{params['NFLOW_MODEL_DIR']}flow_kfold{params['kfold']}_{params['latent_dim']:02d}Dlatent_"
-        + f"layers{layers_str}_nlayers{params['nlayers']:02d}_{params['out_file_tail']}/"
+        f"layers{layers_str}_nlayers{params['nlayers']:02d}_{params['out_file_tail']}/"
     )
 
-    cp_callback = tfk.callbacks.ModelCheckpoint(
+    cp_callback = ks.callbacks.ModelCheckpoint(
         filepath=os.path.join(
             params["PROJECT_DIR"],
             checkpoint_filepath,
@@ -60,16 +62,23 @@ def train_flow(train_data, test_data, params):
         save_freq=min(params["checkpoint_flow_every"], params["epochs_flow"]),
     )
 
-    earlystopping_callback = tfk.callbacks.EarlyStopping(
+    earlystopping_callback = ks.callbacks.EarlyStopping(
         monitor="val_loss",
         patience=params["patience"],
     )
 
     NFmodel, flow = flows.normalizing_flow(params, optimizer=optimizer)
 
+    # Dummy run
+    # print(z_latent.shape)
+    dummy = NFmodel(z_latent, training=False)
+    # dummy_loss = NFmodel.loss(dummy, dummy)
+    # us = flow.bijector.inverse(z_latent)
+    # print(z_latent, us, dummy, dummy_loss)
+
     NFmodel.fit(
         x=z_latent,
-        y=tf.zeros((z_latent.shape[0], 0), dtype=tf.float32),
+        y=tf.zeros_like(z_latent, dtype=tf.float32),
         validation_split=params["val_frac_flow"],
         batch_size=params["batch_size"],
         epochs=params["epochs_flow"],

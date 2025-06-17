@@ -1,11 +1,14 @@
 import os
 
 import numpy as np
+
+os.environ["TF_USE_LEGACY_KERAS"] = "1"
+os.environ["KERAS_BACKEND"] = "tensorflow"
+os.environ["TF_DETERMINISTIC_OPS"] = "1"
 import tensorflow as tf
+from tensorflow import keras as ks
 
-from . import flows, autoencoder
-
-tfk = tf.keras
+from . import flows
 
 
 def load_ae_models(params):
@@ -41,8 +44,8 @@ def load_ae_models(params):
         print("AE model params: ", AE_model_params)
 
     print("\n\n\n\n\n", AE_model_params["encoder"])
-    encoder = tfk.models.load_model(AE_model_params["encoder"], compile=False)
-    decoder = tfk.models.load_model(AE_model_params["decoder"], compile=False)
+    encoder = ks.models.load_model(AE_model_params["encoder"], compile=False)
+    decoder = ks.models.load_model(AE_model_params["decoder"], compile=False)
     AE_params = AE_model_params["parameters"]
 
     if params["model_summary"] and params["verbose"]:

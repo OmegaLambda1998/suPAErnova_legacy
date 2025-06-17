@@ -10,6 +10,7 @@ import time
 from typing import TYPE_CHECKING
 from pathlib import Path
 
+from tqdm import tqdm
 import numpy as np
 import tensorflow as tf
 import tensorflow_probability as tfp
@@ -47,11 +48,13 @@ def find_MAP(model, params, savepath):
             amplitude = tf.convert_to_tensor(model.map_results["amplitude"]).numpy()
             dtime = tf.convert_to_tensor(model.map_results["dtime"]).numpy()
             MAPu = tf.convert_to_tensor(model.map_results["MAPu"]).numpy()
+            MAPz = tf.convert_to_tensor(model.map_results["MAPz"]).numpy()
             amplitude_ini = tf.convert_to_tensor(
                 model.map_results["amplitude_ini"]
             ).numpy()
             dtime_ini = tf.convert_to_tensor(model.map_results["dtime_ini"]).numpy()
             MAPu_ini = tf.convert_to_tensor(model.map_results["MAPu_ini"]).numpy()
+            MAPz_ini = tf.convert_to_tensor(model.map_results["MAPz_ini"]).numpy()
             initial_position = tf.convert_to_tensor(
                 model.map_results["initial_position"]
             ).numpy()
@@ -151,6 +154,7 @@ def find_MAP(model, params, savepath):
             if params["train_dtime"]:
                 initial_position[:, ind_dtime] *= params["dtime_norm"]
 
+            @tf.function
             def func_bfgs(x):
                 return tfp.math.value_and_gradient(lambda x: -1.0 / 100 * model(x), x)
 
@@ -193,6 +197,8 @@ def find_MAP(model, params, savepath):
 
                 MAPu = np.array(results.position)[:, model.istart_map :]
                 MAPu_ini = initial_position[:, model.istart_map :]
+                MAPz = np.array(model.flow.bijector.forward(MAPu))
+                MAPz_ini = np.array(model.flow.bijector.forward(MAPu_ini))
 
                 if params["train_dtime"]:
                     dtime_ini = initial_position[:, ind_dtime]
@@ -222,6 +228,9 @@ def find_MAP(model, params, savepath):
                 MAPu[dm] = np.array(results.position)[dm, model.istart_map :]
                 MAPu_ini[dm] = initial_position[dm, model.istart_map :]
 
+                MAPz[dm] = np.array(model.flow.bijector.forward(MAPu))[dm, :]
+                MAPz_ini[dm] = np.array(model.flow.bijector.forward(MAPu_ini))[dm, :]
+
         if params["verbose"]:
             tf.print(
                 f"MAP initialization {ichain} converged. Num function evaluations: {num_chain_evaluations[0]}"
@@ -241,11 +250,13 @@ def find_MAP(model, params, savepath):
         model.map_results["amplitude"] = tf.Variable(amplitude, dtype=tf.float32)
         model.map_results["dtime"] = tf.Variable(dtime, dtype=tf.float32)
         model.map_results["MAPu"] = tf.Variable(MAPu, dtype=tf.float32)
+        model.map_results["MAPz"] = tf.Variable(MAPz, dtype=tf.float32)
         model.map_results["amplitude_ini"] = tf.Variable(
             amplitude_ini, dtype=tf.float32
         )
         model.map_results["dtime_ini"] = tf.Variable(dtime_ini, dtype=tf.float32)
         model.map_results["MAPu_ini"] = tf.Variable(MAPu_ini, dtype=tf.float32)
+        model.map_results["MAPz_ini"] = tf.Variable(MAPz_ini, dtype=tf.float32)
         model.map_results["initial_position"] = tf.Variable(
             initial_position, dtype=tf.float32
         )
@@ -306,34 +317,27 @@ def run_HMC(model, params, savepath_hmc):
             tf.zeros([initial_position.shape[0], initial_position.shape[1]])
             + model.z_latent_std
         )
-        # print('Initial step sizes', step_sizes)
 
+        progress = tqdm(
+            total=params["num_leapfrog_steps"]
+            * (params["num_burnin_steps"] + params["num_samples"]),
+            leave=True,
+        )
+
+        @tf.py_function(Tout=[])
+        def update_progress() -> None:
+            progress.update()
+
+        @tf.function
         def unnormalized_posterior_log_prob(*args):
+            update_progress()
             return model(*args)
 
-        def trace_fn(_, pkr, *_reducer_args):
-            return [
-                pkr.inner_results.accepted_results.step_size,
-                pkr.inner_results.is_accepted,
-            ]
-
-        pbar_burnin = tfp.experimental.mcmc.ProgressBarReducer(
-            params["num_burnin_steps"],
-            progress_bar_fn=tfp.experimental.mcmc.make_tqdm_progress_bar_fn(
-                description="burnin"
-            ),
-        )
-        pbar_burnin.initialize(None)
-
-        pbar = tfp.experimental.mcmc.ProgressBarReducer(
-            params["num_samples"],
-            progress_bar_fn=tfp.experimental.mcmc.make_tqdm_progress_bar_fn(
-                description="run"
-            ),
-        )
-        pbar.initialize(None)
-
-        initial_position = tf.convert_to_tensor(initial_position)
+        @tf.function
+        def trace_fn(_, pkr):
+            step_size = pkr.inner_results.accepted_results.step_size
+            is_accepted = pkr.inner_results.is_accepted
+            return [step_size, is_accepted]
 
         @tf.function
         def sample_chain(ihmc=True):
@@ -356,37 +360,14 @@ def run_HMC(model, params, savepath_hmc):
                     target_accept_prob=params["target_accept_rate"],
                 )
 
-                # Run the burn-in (with burn-in).
-                burnin_result = tfp.experimental.mcmc.sample_chain(
+                samples, [step_sizes_final, is_accepted] = tfp.mcmc.sample_chain(
+                    params["num_samples"],
+                    initial_position,
                     kernel=kernel,
-                    num_results=params["num_burnin_steps"],
-                    current_state=initial_position,
-                    reducer=pbar_burnin,
-                    trace_fn=trace_fn,
-                    name="burnin",
-                )
-
-                burnin_state = burnin_result[-1]["current_state"]
-                burnin_kernel = burnin_result[-1]["kernel"]
-                burnin_kernel_results = burnin_result[-1]["previous_kernel_results"]
-
-                result = tfp.experimental.mcmc.sample_chain(
-                    kernel=burnin_kernel,
-                    num_results=params["num_samples"],
-                    current_state=burnin_state,
-                    previous_kernel_results=burnin_kernel_results,
-                    reducer=pbar,
+                    num_burnin_steps=params["num_burnin_steps"],
                     trace_fn=trace_fn,
                     name="run",
                 )
-
-                samples = result[0][0]
-                step_sizes_final = result[-1][
-                    "previous_kernel_results"
-                ].inner_results.accepted_results.step_size
-                is_accepted = result[-1][
-                    "previous_kernel_results"
-                ].inner_results.is_accepted
 
                 return samples, step_sizes_final, is_accepted
 
