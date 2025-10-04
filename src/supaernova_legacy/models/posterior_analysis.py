@@ -32,7 +32,7 @@ def find_MAP(model, params, savepath):
         if (savepath_i / model.ckpt_path).exists():
             print(f"Loading posterior model from {savepath_i}")
 
-            model.load_checkpoint(savepath_i)
+            model.load_checkpoint(savepath_i, load_map=True)
 
             chain_min = tf.convert_to_tensor(model.map_results["chain_min"]).numpy()
             converged = tf.convert_to_tensor(model.map_results["converged"]).numpy()
@@ -261,7 +261,7 @@ def find_MAP(model, params, savepath):
             initial_position, dtype=tf.float32
         )
 
-        model.save_checkpoint(savepath_i)
+        model.save_checkpoint(savepath_i, save_map=True)
 
     print(f"Min found on chain {chain_min}")
 
@@ -287,7 +287,7 @@ def run_HMC(model, params, savepath_hmc):
 
     if (savepath_hmc / model.ckpt_path).exists():
         print(f"Loading posterior model from {savepath_hmc}")
-        model.load_checkpoint(savepath_hmc)
+        model.load_checkpoint(savepath_hmc, load_map=True, load_hmc=True)
 
         samples = tf.convert_to_tensor(model.hmc_results["samples"]).numpy()
         step_sizes_final = tf.convert_to_tensor(
@@ -406,7 +406,7 @@ def run_HMC(model, params, savepath_hmc):
         model.hmc_results["start"] = tf.Variable(start, dtype=tf.float32)
         model.hmc_results["end"] = tf.Variable(end, dtype=tf.float32)
 
-        model.save_checkpoint(savepath_hmc)
+        model.save_checkpoint(savepath_hmc, save_hmc=True)
 
     print(
         "{:.2f} s elapsed for {:d} samples".format(
@@ -438,7 +438,7 @@ def train(PAE, params, train_data, test_data, tstrs=None) -> dict[str, "Any"]:
 
         batch_size = params["batch_size"]
         batch_size = min(batch_size, nsn)
-        file_base = os.path.basename(os.path.splitext(params[f"{tstr:s}_data_file"])[0])
+        file_base = Path(os.path.splitext(params[f"{tstr:s}_data_file"])[0]).name
 
         layer_str = "-".join(str(e) for e in params["encode_dims"])
         file_path_out = f"{file_base}_posterior_{params['latent_dim']:02d}Dlatent_layers{layer_str}_{tstr}_{params['posterior_file_tail']}"

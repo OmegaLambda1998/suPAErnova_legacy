@@ -168,7 +168,9 @@ class LogPosterior(ks.Model):
                 shape=[self.nsamples, self.latent_dim_u + 2],
             ),
             "is_accepted": tf.Variable(
-                [0.0] * self.nsamples, dtype=tf.float32, shape=[self.nsamples]
+                [[0.0] * self.nsamples] * self.nsteps,
+                dtype=tf.float32,
+                shape=[self.nsteps, self.nsamples],
             ),
             "start": tf.Variable(0.0, dtype=tf.float32, shape=()),
             "end": tf.Variable(0.0, dtype=tf.float32, shape=()),
@@ -215,16 +217,34 @@ class LogPosterior(ks.Model):
             f"{'best' if not self.params['overfit'] else 'latest'}.model.checkpoint/"
         )
 
-    def save_checkpoint(self, savepath: "Path") -> None:
+    def save_checkpoint(self, savepath: "Path", save_map=False, save_hmc=True) -> None:
         (savepath / self.ckpt_path).mkdir(parents=True, exist_ok=True)
-        tf.train.Checkpoint(
-            self, map_results=self.map_results, hmc_results=self.hmc_results
-        ).save(f"{savepath / self.ckpt_path}/")
+        if save_map and save_hmc:
+            ckpt = tf.train.Checkpoint(
+                self, map_results=self.map_results, hmc_results=self.hmc_results
+            )
+        elif save_map:
+            ckpt = tf.train.Checkpoint(self, map_results=self.map_results)
+        elif save_hmc:
+            ckpt = tf.train.Checkpoint(self, hmc_results=self.hmc_results)
+        else:
+            ckpt = tf.train.Checkpoint(self)
 
-    def load_checkpoint(self, loadpath: "Path") -> None:
-        tf.train.Checkpoint(
-            self, map_results=self.map_results, hmc_results=self.hmc_results
-        ).restore(
+        ckpt.save(f"{savepath / self.ckpt_path}/")
+
+    def load_checkpoint(self, loadpath: "Path", load_map=False, load_hmc=False) -> None:
+        if load_map and load_hmc:
+            ckpt = tf.train.Checkpoint(
+                self, map_results=self.map_results, hmc_results=self.hmc_results
+            )
+        elif load_map:
+            ckpt = tf.train.Checkpoint(self, map_results=self.map_results)
+        elif load_hmc:
+            ckpt = tf.train.Checkpoint(self, hmc_results=self.hmc_results)
+        else:
+            ckpt = tf.train.Checkpoint(self)
+
+        ckpt.restore(
             tf.train.latest_checkpoint(f"{loadpath / self.ckpt_path}/")
         ).assert_existing_objects_matched()
 
